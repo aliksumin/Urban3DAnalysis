@@ -101,7 +101,7 @@ export default function MapSelectorModal({ isOpen, onClose, onRegionSelect }) {
     };
 
     return (
-        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm p-10">
+        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-slate-200/50 backdrop-blur-md p-10">
             <Panel className="w-full max-w-[1200px] h-full max-h-[800px] shadow-2xl relative">
 
                 <PanelHeader
@@ -109,10 +109,10 @@ export default function MapSelectorModal({ isOpen, onClose, onRegionSelect }) {
                     action={<Button variant="ghost" size="icon" onClick={onClose}><X size={16} /></Button>}
                 />
 
-                <div className="flex-1 relative bg-zinc-950 overflow-hidden group">
+                <div className="flex-1 relative bg-white overflow-hidden group">
                     <div className="absolute inset-0">
-                        <MapContainer center={initialCenter} zoom={14} style={{ width: '100%', height: '100%', backgroundColor: '#09090b' }} zoomControl={false}>
-                            <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+                        <MapContainer center={initialCenter} zoom={14} style={{ width: '100%', height: '100%', backgroundColor: '#f8fafc' }} zoomControl={false}>
+                            <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
                             <MapController setBounds={setBounds} boxW={boxW} boxH={boxH} />
                         </MapContainer>
                     </div>
@@ -120,14 +120,14 @@ export default function MapSelectorModal({ isOpen, onClose, onRegionSelect }) {
                     <ResizableFrame boxW={boxW} boxH={boxH} setBoxW={setBoxW} setBoxH={setBoxH} />
 
                     <div className="absolute top-5 left-5 pointer-events-none z-[1000] drop-shadow-2xl">
-                        <form onSubmit={handleSearch} className="flex gap-2 pointer-events-auto bg-zinc-900/90 backdrop-blur-md border border-zinc-800 p-2 rounded-2xl">
-                            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none text-zinc-200 px-3 py-1.5 text-xs w-64 focus:outline-none placeholder-zinc-600 font-mono" placeholder="Query region array..." />
+                        <form onSubmit={handleSearch} className="flex gap-2 pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 p-2 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+                            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none text-slate-800 px-3 py-1.5 text-xs w-64 focus:outline-none placeholder-slate-400 font-mono" placeholder="Query region array..." />
                             <Button variant="secondary" size="icon" type="submit" className="rounded-xl"><Search size={14} /></Button>
                         </form>
                     </div>
                 </div>
 
-                <div className="px-6 py-5 border-t border-zinc-800/60 bg-zinc-900/40 flex justify-between items-center">
+                <div className="px-6 py-5 border-t border-slate-200/80 bg-slate-50/50 flex justify-between items-center">
                     <div className="w-64">
                         <Switch checked={reliefEnabled} onChange={setReliefEnabled} label="3D Topography Rendering" />
                     </div>

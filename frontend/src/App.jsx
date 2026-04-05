@@ -32,7 +32,7 @@ export default function App() {
   };
 
   return (
-    <div className="w-full h-full relative overflow-hidden bg-zinc-950 text-sm font-sans selection:bg-blue-500 selection:text-white text-zinc-300">
+    <div className="w-full h-full relative overflow-hidden bg-slate-50 text-sm font-sans selection:bg-blue-500 selection:text-white text-slate-700">
       <div className="absolute inset-0 z-0">
         <Environment3D regionBounds={regionBounds} reliefEnabled={reliefEnabled} />
       </div>

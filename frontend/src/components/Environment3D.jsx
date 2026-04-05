@@ -12,8 +12,26 @@ export const useStore = create((set) => ({
     getEl: null,
 }));
 
+const InstancedVoxels = ({ data, material, count, vGeom, colors }) => {
+    const meshRef = useRef();
+    useEffect(() => {
+        if (meshRef.current && data) {
+            meshRef.current.instanceMatrix.array.set(data);
+            meshRef.current.instanceMatrix.needsUpdate = true;
+            meshRef.current.frustumCulled = false;
+        }
+    }, [data, count]);
+    if (!data || count === 0) return null;
+    return (
+        <instancedMesh ref={meshRef} args={[vGeom, material, count]} receiveShadow castShadow frustumCulled={false}>
+            {colors && <instancedBufferAttribute attach="instanceColor" args={[colors, 3]} />}
+        </instancedMesh>
+    );
+};
+
+
 const dbPromise = new Promise((resolve) => {
-    const request = indexedDB.open('UrbanOSM', 29);
+    const request = indexedDB.open('UrbanOSM', 35);
     request.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (db.objectStoreNames.contains('cache')) db.deleteObjectStore('cache');
@@ -312,14 +330,36 @@ function OsmModel({ bounds, refEn }) {
                         if (el.tags?.building) {
                             let h = el.tags?.height ? parseFloat(el.tags.height) : (el.tags?.['building:levels'] ? parseInt(el.tags['building:levels']) * 3 : 10);
                             if (isNaN(h) || h <= 0) h = 10;
-                            blds.push({ p: pts, h, ls, el: 0 });
+                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                            pts.forEach(p => {
+                                if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+                                if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+                            });
+                            
+                            const eps = 0.5;
+                            const isOnBorder = minX <= eps || maxX >= wVal - eps || minY <= eps || maxY >= dVal - eps;
+                            if (!isOnBorder) {
+                                blds.push({ p: pts, h, ls, el: 0, minX, maxX, minY, maxY });
+                            }
                         } else if (el.tags?.highway) {
-                            hwys.push({ p: pts, ls });
+                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                            pts.forEach(p => {
+                                if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+                                if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+                            });
+                            hwys.push({ p: pts, ls, minX, maxX, minY, maxY });
+                        } else if (el.tags?.natural === 'beach' || el.tags?.natural === 'sand') {
+                            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                            pts.forEach(p => {
+                                if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+                                if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+                            });
+                            snd.push({ p: pts, ls, minX, maxX, minY, maxY });
                         } else {
-                            const isCoast = el.tags?.natural === 'coastline' || el.tags?.natural === 'bay' || el.tags?.water === 'sea';
+                            const isCoast = el.tags?.natural === 'coastline';
                             const isWater = el.tags?.natural === 'water' || el.tags?.waterway === 'riverbank' || el.tags?.waterway === 'dock' ||
                                 el.tags?.water === 'lake' || el.tags?.water === 'river' || el.tags?.water === 'reservoir' ||
-                                el.tags?.water === 'basin' || el.tags?.landuse === 'basin' || el.tags?.landuse === 'reservoir';
+                                el.tags?.water === 'basin' || el.tags?.landuse === 'basin' || el.tags?.landuse === 'reservoir' || el.tags?.natural === 'bay' || el.tags?.water === 'sea';
 
                             if (isCoast || isWater) {
                                 // Filter out linear centerlines natively by checking if the way is topologically closed.
@@ -335,12 +375,22 @@ function OsmModel({ bounds, refEn }) {
                                 };
                                 const isClipped = isOnEdge(originalFirst.lon, originalFirst.lat) || isOnEdge(originalLast.lon, originalLast.lat);
 
+                                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                                pts.forEach(p => {
+                                    if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+                                    if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+                                });
+
                                 // Coastlines are allowed to be open. Inland water ways MUST be closed OR geometrically clipped.
                                 if (isCoast) {
-                                    if (isClosed) closedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: [] });
-                                    else unclosedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: [] });
+                                    if (isClosed) closedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: [], minX, maxX, minY, maxY });
+                                    else unclosedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: [], minX, maxX, minY, maxY });
                                 } else if (isClosed || isClipped) {
-                                    watr.push({ p: pts, ls, el: 0, isCoast: false, h: [] });
+                                    watr.push({ p: pts, ls, el: 0, isCoast: false, h: [], minX, maxX, minY, maxY });
+                                } else {
+                                    let closedPts = [...pts];
+                                    closedPts.push(pts[0]);
+                                    watr.push({ p: closedPts, ls: closedPts.map(p => [p[0], p[1]]), el: 0, isCoast: false, h: [], minX, maxX, minY, maxY });
                                 }
                             }
                         }
@@ -349,11 +399,11 @@ function OsmModel({ bounds, refEn }) {
                     // Process relations for multipolygon water (seas, bays, large lakes)
                     allWays.relations.forEach(rel => {
                         if (!rel.tags) return;
-                        const isCoast = rel.tags.natural === 'coastline' || rel.tags.natural === 'bay' || rel.tags.water === 'sea';
+                        const isCoast = rel.tags.natural === 'coastline';
                         const isWater = rel.tags.natural === 'water' || rel.tags.waterway === 'riverbank' || rel.tags.waterway === 'dock' ||
                             rel.tags.water === 'lake' || rel.tags.water === 'river' || rel.tags.water === 'reservoir' || rel.tags.water === 'basin' || rel.tags.waterway === 'river' ||
                             rel.tags.landuse === 'basin' || rel.tags.landuse === 'reservoir' ||
-                            (rel.tags.type === 'multipolygon' && (rel.tags.natural === 'water' || rel.tags.natural === 'bay' || rel.tags.waterway === 'river'));
+                            (rel.tags.type === 'multipolygon' && (rel.tags.natural === 'water' || rel.tags.natural === 'bay' || rel.tags.waterway === 'river')) || rel.tags.natural === 'bay' || rel.tags.water === 'sea';
 
                         if (!isCoast && !isWater) return;
 
@@ -461,10 +511,10 @@ function OsmModel({ bounds, refEn }) {
                             });
 
                             if (isCoast) {
-                                if (isClosed) closedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: validHoles });
-                                else unclosedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: validHoles });
+                                if (isClosed) closedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: validHoles, minX, maxX, minY, maxY });
+                                else unclosedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: validHoles, minX, maxX, minY, maxY });
                             } else {
-                                watr.push({ p: pts, ls, el: 0, isCoast: false, h: validHoles });
+                                watr.push({ p: pts, ls, el: 0, isCoast: false, h: validHoles, minX, maxX, minY, maxY });
                             }
                         });
                     });
@@ -482,14 +532,20 @@ function OsmModel({ bounds, refEn }) {
                             }
                         }
 
+                        if (best.dist > 100000) break; // Do not merge disjoint islands/coasts
+
                         let c1 = unclosedCoasts[best.i];
                         let c2 = unclosedCoasts[best.j];
 
                         let mergedP = c1.p.concat(c2.p.slice(1));
                         let mergedLs = c1.ls.concat(c2.ls.slice(1));
                         let mergedH = [...(c1.h || []), ...(c2.h || [])];
+                        let minX = Math.min(c1.minX, c2.minX);
+                        let maxX = Math.max(c1.maxX, c2.maxX);
+                        let minY = Math.min(c1.minY, c2.minY);
+                        let maxY = Math.max(c1.maxY, c2.maxY);
 
-                        let mergedCoast = { p: mergedP, ls: mergedLs, el: 0, isCoast: true, h: mergedH };
+                        let mergedCoast = { p: mergedP, ls: mergedLs, el: 0, isCoast: true, h: mergedH, minX, maxX, minY, maxY };
 
                         unclosedCoasts.splice(Math.max(best.i, best.j), 1);
                         unclosedCoasts.splice(Math.min(best.i, best.j), 1);
@@ -504,36 +560,36 @@ function OsmModel({ bounds, refEn }) {
 
                         const getEdge = (pt) => {
                             const EPS = 0.5;
-                            if (pt[1] >= -EPS) return 0;
-                            if (pt[0] >= wVal - EPS) return 1;
-                            if (pt[1] <= -dVal + EPS) return 2;
-                            if (pt[0] <= EPS) return 3;
+                            if (pt[1] >= dVal - EPS) return 0; // Top boundary (North)
+                            if (pt[0] >= wVal - EPS) return 1; // Right boundary (East)
+                            if (pt[1] <= EPS) return 2;        // Bottom boundary (South)
+                            if (pt[0] <= EPS) return 3;        // Left boundary (West)
                             return -1;
                         };
 
                         const nextCornerForEdge = {
-                            0: { corner: [wVal, 0], nextEdge: 1 },      // Top boundary exits East to Right boundary
-                            1: { corner: [wVal, -dVal], nextEdge: 2 },  // Right boundary exits South to Bottom boundary
-                            2: { corner: [0, -dVal], nextEdge: 3 },     // Bottom boundary exits West to Left boundary
-                            3: { corner: [0, 0], nextEdge: 0 }          // Left boundary exits North to Top boundary
+                            0: { corner: [wVal, dVal], nextEdge: 1 },      // Top boundary exits East to Right boundary
+                            1: { corner: [wVal, 0], nextEdge: 2 },         // Right boundary exits South to Bottom boundary
+                            2: { corner: [0, 0], nextEdge: 3 },            // Bottom boundary exits West to Left boundary
+                            3: { corner: [0, dVal], nextEdge: 0 }          // Left boundary exits North to Top boundary
                         };
 
                         let currEdge = getEdge(last);
                         let targetEdge = getEdge(first);
 
                         if (currEdge === -1) {
-                            const eDists = [Math.abs(last[1]), Math.abs(last[0] - wVal), Math.abs(last[1] - (-dVal)), Math.abs(last[0])];
+                            const eDists = [Math.abs(last[1] - dVal), Math.abs(last[0] - wVal), Math.abs(last[1]), Math.abs(last[0])];
                             currEdge = eDists.indexOf(Math.min(...eDists));
                         }
                         if (targetEdge === -1) {
-                            const eDists = [Math.abs(first[1]), Math.abs(first[0] - wVal), Math.abs(first[1] - (-dVal)), Math.abs(first[0])];
+                            const eDists = [Math.abs(first[1] - dVal), Math.abs(first[0] - wVal), Math.abs(first[1]), Math.abs(first[0])];
                             targetEdge = eDists.indexOf(Math.min(...eDists));
                         }
 
                         const clampToEdge = (pt, edge) => {
-                            if (edge === 0) return [pt[0], 0];
+                            if (edge === 0) return [pt[0], dVal];
                             if (edge === 1) return [wVal, pt[1]];
-                            if (edge === 2) return [pt[0], -dVal];
+                            if (edge === 2) return [pt[0], 0];
                             if (edge === 3) return [0, pt[1]];
                             return [pt[0], pt[1]];
                         };
@@ -553,6 +609,15 @@ function OsmModel({ bounds, refEn }) {
                             pts.push(extFirst);
                         }
                         pts.push(pts[0]);
+
+                        // IMPORTANT: Recalculate Bounding Box because we just appended corners extending to the map bounds!
+                        for (let pt of pts) {
+                            if (pt[0] < coast.minX) coast.minX = pt[0];
+                            if (pt[0] > coast.maxX) coast.maxX = pt[0];
+                            if (pt[1] < coast.minY) coast.minY = pt[1];
+                            if (pt[1] > coast.maxY) coast.maxY = pt[1];
+                        }
+
                         closedCoasts.push(coast);
                     });
 
@@ -563,7 +628,10 @@ function OsmModel({ bounds, refEn }) {
                         let computedMinH = 0;
                         if (refEn && getEl) {
                             let minHVal = Infinity;
-                            blds.forEach(b => { b.el = getEl(b.ls[0][0], b.ls[0][1]); minHVal = Math.min(minHVal, b.el); });
+                            blds.forEach(b => {
+                                b.el = getEl(b.ls[0][0], b.ls[0][1]);
+                                if (!isNaN(b.el)) minHVal = Math.min(minHVal, b.el);
+                            });
                             watr.forEach(w => {
                                 let minFound = Infinity;
                                 let maxFound = -Infinity;
@@ -572,17 +640,18 @@ function OsmModel({ bounds, refEn }) {
                                     const latD = Math.min(Math.abs(pt[1] - bounds[1]), Math.abs(pt[1] - bounds[3]));
                                     if (lonD > 0.005 && latD > 0.005) {
                                         const el = getEl(pt[0], pt[1]);
-                                        if (el < minFound) minFound = el;
-                                        if (el > maxFound) maxFound = el;
+                                        if (!isNaN(el)) {
+                                            if (el < minFound) minFound = el;
+                                            if (el > maxFound) maxFound = el;
+                                        }
                                     }
                                 });
                                 if (minFound === Infinity) minFound = 0;
                                 if (maxFound === -Infinity) maxFound = 0;
 
-                                if (minFound === Infinity) minFound = 0;
                                 w.el = minFound;
                                 w.bottom = minFound - 10;
-                                minHVal = Math.min(minHVal, w.bottom);
+                                if (!isNaN(w.bottom)) minHVal = Math.min(minHVal, w.bottom);
                             });
                             snd.forEach(s => { s.el = getEl(s.ls[0][0], s.ls[0][1]); minHVal = Math.min(minHVal, s.el); });
                             computedMinH = minHVal === Infinity ? 0 : Math.max(0, minHVal);
@@ -610,36 +679,202 @@ function OsmModel({ bounds, refEn }) {
         new THREE.Plane(new THREE.Vector3(0, 0, -1), d / 2)
     ], [w, d]);
 
-    const bMesh = useMemo(() => bldgs.map((b, i) => {
-        const shape = new THREE.Shape();
-        b.p.forEach((pt, id) => id === 0 ? shape.moveTo(pt[0], pt[1]) : shape.lineTo(pt[0], pt[1]));
-        return (
-            <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[0, Math.max(0.5, b.el - minH), 0]} castShadow receiveShadow>
-                <extrudeGeometry args={[shape, { depth: b.h, bevelEnabled: false }]} />
-                <meshStandardMaterial color="#f4f4f5" roughness={0.3} flatShading={true} clippingPlanes={clipPlanes} />
-            </mesh>
-        );
-    }), [bldgs, minH, clipPlanes]);
+    const { terrainData, waterData, buildingData, roadData, sandData } = useMemo(() => {
+        if (!bldgs || !water || w === 0 || d === 0) return { terrainData: new Float32Array(0), waterData: new Float32Array(0), buildingData: new Float32Array(0), roadData: new Float32Array(0), sandData: new Float32Array(0) };
+        const dummy = new THREE.Object3D();
+        const cDummy = new THREE.Color();
+        const vSize = Math.max(1, Math.floor(w / 800)); // Optimal high resolution
+        const hSize = Math.max(1, Math.floor(w / 800));
+        
+        const cols = Math.floor(w / vSize) + 1;
+        const rows = Math.floor(d / vSize) + 1;
+        const maxVoxels = cols * rows;
 
-    const rMesh = useMemo(() => {
-        const pts = [];
-        hwys.forEach(h => {
-            for (let i = 0; i < h.p.length - 1; i++) {
-                let y1 = Math.max(0.5, (refEn ? getEl(h.ls[i][0], h.ls[i][1]) : 0) - minH) + 1.0;
-                let y2 = Math.max(0.5, (refEn ? getEl(h.ls[i + 1][0], h.ls[i + 1][1]) : 0) - minH) + 1.0;
-                pts.push(new THREE.Vector3(h.p[i][0], y1, -h.p[i][1]), new THREE.Vector3(h.p[i + 1][0], y2, -h.p[i + 1][1]));
+        const tArr = new Float32Array(maxVoxels * 16);
+        const wArr = new Float32Array(maxVoxels * 16);
+        const bArr = new Float32Array(maxVoxels * 16);
+        const rArr = new Float32Array(maxVoxels * 16);
+        const sArr = new Float32Array(maxVoxels * 16);
+
+        let tIdx = 0, wIdx = 0, bIdx = 0, rIdx = 0, sIdx = 0;
+
+        const cb = useStore.getState().currentBounds;
+
+        const setMatrix = (arr, idx, px, py, pz, sx, sy, sz) => {
+            arr[idx] = sx; arr[idx+1] = 0; arr[idx+2] = 0; arr[idx+3] = 0;
+            arr[idx+4] = 0; arr[idx+5] = sy; arr[idx+6] = 0; arr[idx+7] = 0;
+            arr[idx+8] = 0; arr[idx+9] = 0; arr[idx+10]= sz; arr[idx+11]= 0;
+            arr[idx+12]= px; arr[idx+13]= py; arr[idx+14]= pz; arr[idx+15]= 1;
+        };
+
+        const ptInPoly = (point, vs) => {
+            let x = point[0], y = point[1], inside = false;
+            for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+                let xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
+                let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
             }
-        });
-        const geo = new THREE.BufferGeometry().setFromPoints(pts);
-        const geo2 = new THREE.BufferGeometry().setFromPoints(pts.map(v => new THREE.Vector3(v.x, v.y + 0.5, v.z)));
-        return (
-            <group>
-                <lineSegments geometry={geo}><lineBasicMaterial color={[0, 1.5, 2.5]} opacity={0.6} transparent clippingPlanes={clipPlanes} /></lineSegments>
-                <lineSegments geometry={geo2}><lineBasicMaterial color={[0, 2.5, 4.0]} opacity={0.8} transparent clippingPlanes={clipPlanes} /></lineSegments>
-            </group>
-        );
-    }, [hwys, minH, refEn, getEl, clipPlanes]);
+            return inside;
+        };
 
+        const distToSegmentSquared = (p, v, wPt) => {
+            let l2 = Math.pow(v[0] - wPt[0], 2) + Math.pow(v[1] - wPt[1], 2);
+            if (l2 === 0) return Math.pow(p[0] - v[0], 2) + Math.pow(p[1] - v[1], 2);
+            let t = ((p[0] - v[0]) * (wPt[0] - v[0]) + (p[1] - v[1]) * (wPt[1] - v[1])) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return Math.pow(p[0] - (v[0] + t * (wPt[0] - v[0])), 2) + Math.pow(p[1] - (v[1] + t * (wPt[1] - v[1])), 2);
+        };
+
+        const CELL_SIZE = 100;
+        const bldgsGrid = new Map();
+        const watrGrid = new Map();
+        const hwysGrid = new Map();
+        const sandGrid = new Map();
+
+        const addToGrid = (item, grid) => {
+            const minCx = Math.floor(item.minX / CELL_SIZE);
+            const maxCx = Math.floor(item.maxX / CELL_SIZE);
+            const minCz = Math.floor(item.minY / CELL_SIZE);
+            const maxCz = Math.floor(item.maxY / CELL_SIZE);
+            for(let cx=minCx; cx<=maxCx; cx++) {
+                for(let cz=minCz; cz<=maxCz; cz++) {
+                    const key = cx + "_" + cz;
+                    if(!grid.has(key)) grid.set(key, []);
+                    grid.get(key).push(item);
+                }
+            }
+        };
+
+        water.forEach(w => addToGrid(w, watrGrid));
+        bldgs.forEach(b => addToGrid(b, bldgsGrid));
+        hwys.forEach(h => addToGrid(h, hwysGrid));
+        sand.forEach(s => addToGrid(s, sandGrid));
+
+        for (let x = 0; x <= w; x += vSize) {
+            for (let z = 0; z >= -d; z -= vSize) {
+                const lx = x;
+                const lz = -z;
+                const [lon, lat] = cb ? reproject(lx, lz, cb[0], cb[1]) : [0, 0];
+                let rawEl = refEn && getEl && cb ? getEl(lon, lat) : 0;
+                if (rawEl == null || isNaN(rawEl)) rawEl = 0;
+
+                let isBuilding = false, bHeight = 0, isWater = false, wtEl = 0, isRoad = false, isSand = false;
+                
+                const cx = Math.floor(lx / CELL_SIZE);
+                const cz = Math.floor(lz / CELL_SIZE);
+                const cellKey = cx + "_" + cz;
+
+                const cellWatr = watrGrid.get(cellKey) || [];
+                const cellBldgs = bldgsGrid.get(cellKey) || [];
+                const cellHwys = hwysGrid.get(cellKey) || [];
+                const cellSand = sandGrid.get(cellKey) || [];
+
+                // Priority 1: Water
+                for (let wt of cellWatr) {
+                    if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
+                    if (ptInPoly([lx, lz], wt.p)) {
+                        let isHole = false;
+                        if (wt.h) {
+                            for (let hole of wt.h) {
+                                if (ptInPoly([lx, lz], hole)) { isHole = true; break; }
+                            }
+                        }
+                        if (!isHole) {
+                            isWater = true;
+                            wtEl = wt.el;
+                            break;
+                        }
+                    }
+                }
+
+                // Priority 2: Building
+                if (!isWater) {
+                    for (let b of cellBldgs) {
+                        if (lx < b.minX || lx > b.maxX || lz < b.minY || lz > b.maxY) continue;
+                        if (ptInPoly([lx, lz], b.p)) {
+                            isBuilding = true; bHeight = b.h; break;
+                        }
+                    }
+                }
+
+                // Priority 3: Road
+                if (!isWater && !isBuilding) {
+                    for (let h of cellHwys) {
+                        if (lx < h.minX - 10 || lx > h.maxX + 10 || lz < h.minY - 10 || lz > h.maxY + 10) continue;
+                        for (let i = 0; i < h.p.length - 1; i++) {
+                            if (distToSegmentSquared([lx, lz], h.p[i], h.p[i + 1]) < 10) {
+                                isRoad = true; break;
+                            }
+                        }
+                        if (isRoad) break;
+                    }
+                }
+
+                // Priority 4: Sand/Beach
+                if (!isWater && !isBuilding && !isRoad) {
+                    for (let s of cellSand) {
+                        if (lx < s.minX || lx > s.maxX || lz < s.minY || lz > s.maxY) continue;
+                        if (ptInPoly([lx, lz], s.p)) {
+                            isSand = true; break;
+                        }
+                    }
+                }
+
+                let baseTerrain = rawEl;
+                if (isWater) {
+                    baseTerrain -= 50; // Deeply sink terrain for water basins
+                } else if (isSand) {
+                    baseTerrain -= 2; // Slight dip for beaches
+                }
+
+                let topY = Math.floor(Math.max(0, baseTerrain - minH) / hSize) * hSize;
+
+                if (isWater) {
+                    let waterY = Math.floor(Math.max(0, wtEl - minH + 0.1) / hSize) * hSize + hSize;
+                    let wHeight = waterY - (-10) + hSize;
+                    let wP_y = -10 + wHeight / 2 - hSize / 2;
+                    setMatrix(wArr, wIdx, x, wP_y, z, vSize, wHeight, vSize);
+                    wIdx += 16;
+                } else {
+                    let tHeight = topY - (-10) + hSize;
+                    let tP_y = -10 + tHeight / 2 - hSize / 2;
+                    setMatrix(tArr, tIdx, x, tP_y, z, vSize, tHeight, vSize);
+                    tIdx += 16;
+                }
+
+                if (!isWater && isBuilding) {
+                    let bhY = topY + Math.floor(bHeight / hSize) * hSize;
+                    if (bhY >= topY + hSize) {
+                        let bH = bhY - (topY + hSize) + hSize;
+                        let bP_y = (topY + hSize) + bH / 2 - hSize / 2;
+                        setMatrix(bArr, bIdx, x, bP_y, z, vSize, bH, vSize);
+                        bIdx += 16;
+                    }
+                } else if (isRoad) {
+                    let rP_y = topY + hSize / 2 + 0.25;
+                    setMatrix(rArr, rIdx, x, rP_y, z, vSize, 0.6, vSize);
+                    rIdx += 16;
+                } else if (isSand) {
+                    let sP_y = topY + hSize / 2;
+                    setMatrix(sArr, sIdx, x, sP_y, z, vSize, hSize, vSize);
+                    sIdx += 16;
+                }
+            }
+        }
+
+        // Color buffer array for terrain
+        const tCol = [];
+        return {
+            terrainData: tArr.slice(0, tIdx),
+            waterData: wArr.slice(0, wIdx),
+            buildingData: bArr.slice(0, bIdx),
+            roadData: rArr.slice(0, rIdx),
+            sandData: sArr.slice(0, sIdx)
+        };
+    }, [w, d, bldgs, water, sand, hwys, minH, refEn, getEl]);
+
+
+    const vGeom = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
     const [normals, setNormals] = useState(null);
     useEffect(() => {
         new THREE.TextureLoader().load('/waternormals.jpg', tex => {
@@ -655,89 +890,31 @@ function OsmModel({ bounds, refEn }) {
         }
     });
 
-    const wMesh = useMemo(() => {
-        if (!normals || water.length === 0 || w === 0 || d === 0) return null;
 
-        return water.map((wt, i) => {
-            if (wt.p.length < 3) return null;
-            const shape = new THREE.Shape();
-            wt.p.forEach((pt, id) => id === 0 ? shape.moveTo(pt[0], pt[1]) : shape.lineTo(pt[0], pt[1]));
+    const terrainMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#88cc99", roughness: 0.9, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
+    const buildingMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.3, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
+    const roadMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffd700", emissive: "#ffaa00", emissiveIntensity: 2.0, roughness: 0.2, metalness: 0.8, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
+    const sandMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#e6c280", roughness: 1.0, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
+    const waterMaterial = useMemo(() => new THREE.MeshStandardMaterial({
+        color: "#66ccff", transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.8, normalMap: normals, clippingPlanes: clipPlanes
+    }), [normals, clipPlanes]);
 
-            const isClosed = Math.abs(wt.p[0][0] - wt.p[wt.p.length - 1][0]) < 0.001 && Math.abs(wt.p[0][1] - wt.p[wt.p.length - 1][1]) < 0.001;
-
-            let pts = wt.p;
-            if (!wt.isCoast && isClosed) {
-                try {
-                    let polyCoords = pts.map(p => [p[0], p[1]]);
-                    if (polyCoords[0][0] !== polyCoords[polyCoords.length - 1][0] || polyCoords[0][1] !== polyCoords[polyCoords.length - 1][1]) {
-                        polyCoords.push([...polyCoords[0]]);
-                    }
-                    let cleaned = turf.cleanCoords(turf.polygon([polyCoords]));
-                    pts = cleaned.geometry.coordinates[0];
-                    pts.pop();
-                } catch (e) { }
-            }
-
-            pts.forEach((pt, id) => id === 0 ? shape.moveTo(pt[0], pt[1]) : shape.lineTo(pt[0], pt[1]));
-
-            if (wt.h) {
-                wt.h.forEach(holePts => {
-                    const holePath = new THREE.Path();
-                    holePts.forEach((pt, id) => id === 0 ? holePath.moveTo(pt[0], pt[1]) : holePath.lineTo(pt[0], pt[1]));
-                    shape.holes.push(holePath);
-                });
-            }
-
-            const diff = wt.el - wt.bottom;
-            const computedDepth = Math.max(1, diff + (wt.isCoast ? 50 : 2));
-            const geom = new THREE.ExtrudeGeometry(shape, { depth: computedDepth, bevelEnabled: false });
-            geom.translate(0, 0, -computedDepth);
-            const elevation = Math.max(0.5, wt.el - minH) + 0.1;
-
-            return (
-                <mesh
-                    key={i}
-                    position={[0, elevation, 0]}
-                    rotation={[-Math.PI / 2, 0, 0]}
-                >
-                    <primitive object={geom} attach="geometry" />
-                    <meshPhysicalMaterial
-                        color="#006699"
-                        transmission={0.8}
-                        opacity={1}
-                        side={THREE.DoubleSide}
-                        transparent={true}
-                        roughness={0.1}
-                        ior={1.33}
-                        thickness={5}
-                        normalMap={normals}
-                        normalScale={new THREE.Vector2(0.5, 0.5)}
-                        clippingPlanes={clipPlanes}
-                    />
-                </mesh>
-            );
-        });
-    }, [water, minH, w, d, normals, clipPlanes]);
-
-
-
-    const sMesh = null;
     return (
         <>
             {osmStatus && (
                 <Html center position={[0, Math.max(-minH, 0) + 100, 0]}>
-                    <div className="bg-red-950/90 border border-red-800 text-red-200 px-6 py-3 rounded-lg shadow-2xl font-mono text-xs whitespace-nowrap pointer-events-none">
+                    <div className="bg-white/90 backdrop-blur-md border border-slate-200 text-slate-800 px-6 py-3 rounded-lg shadow-lg font-mono text-xs whitespace-nowrap pointer-events-none">
                         [DIAGNOSTIC] {osmStatus}
                     </div>
                 </Html>
             )}
             <group position={[-w / 2, 0, d / 2]}>
-                {bMesh}
-                {rMesh}
-                {wMesh}
-                {sMesh}
+                <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
+                <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
+                <InstancedVoxels data={buildingData} material={buildingMaterial} count={buildingData.length / 16} vGeom={vGeom} />
+                <InstancedVoxels data={roadData} material={roadMaterial} count={roadData.length / 16} vGeom={vGeom} />
+                <InstancedVoxels data={waterData} material={waterMaterial} count={waterData.length / 16} vGeom={vGeom} />
             </group>
-            <PlatformBase w={w} d={d} refEn={refEn} minH={minH} water={water} />
         </>
     );
 }
@@ -746,7 +923,7 @@ function OsmModel({ bounds, refEn }) {
 export default function Environment3D({ regionBounds, reliefEnabled }) {
     return (
         <Canvas gl={{ localClippingEnabled: true, antialias: true, logarithmicDepthBuffer: true }} camera={{ position: [0, 400, 800], fov: 35, near: 1, far: 20000 }} shadows>
-            <color attach="background" args={['#09090b']} />
+            <color attach="background" args={['#f8fafc']} />
             <ambientLight intensity={1.2} color="#ffffff" />
             <directionalLight position={[400, 800, 200]} intensity={1.5} color="#ffffff" castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-1000} shadow-camera-right={1000} shadow-camera-top={1000} shadow-camera-bottom={-1000} shadow-bias={-0.001} shadow-normalBias={0.05} />
             <directionalLight position={[-200, 200, -200]} intensity={0.5} color="#ffffff" />

@@ -15,14 +15,14 @@ body,
 body {
   margin: 0;
   overflow: hidden;
-  background-color: #09090b;
-  color: #fafafa;
+  background-color: #f8fafc;
+  color: #0f172a;
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
 .leaflet-container {
-  background-color: #09090b !important;
+  background-color: #f8fafc !important;
 }
 
 /* custom scrollbars */
@@ -35,10 +35,10 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: #cbd5e1;
   border-radius: 4px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: #94a3b8;
 }
