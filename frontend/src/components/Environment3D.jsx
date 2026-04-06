@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, extend } from '@react-three/fiber';
-import { OrbitControls, Html } from '@react-three/drei';
+import { OrbitControls, Html, Line, Sphere, QuadraticBezierLine } from '@react-three/drei';
 import * as THREE from 'three';
 import { Water } from 'three-stdlib';
+import { buildRoadGraph, computeWalkability } from '../utils/walkabilityGraph';
 
 extend({ Water });
 import { create } from 'zustand';
@@ -10,10 +11,53 @@ import { create } from 'zustand';
 export const useStore = create((set) => ({
     currentBounds: null,
     getEl: null,
+    selectedBuildingId: null,
+    buildingEdits: {},
+    buildingColorMode: 'solid',
+    solidColor: '#ffffff',
+    functionColors: { residential: '#3b82f6', commercial: '#f97316', industrial: '#64748b', office: '#06b6d4', educational: '#eab308', retail: '#ef4444', clinic: '#10b981', school: '#8b5cf6' },
+    osmStatus: '',
+    setOsmStatus: (status) => set({ osmStatus: status }),
+    diagnosticInfo: { ways: 0, bldgs: 0, err: '' },
+    setDiagnosticInfo: (info) => set(state => ({ diagnosticInfo: { ...state.diagnosticInfo, ...info } })),
+    allBuildings: [],
+    showDiagnostics: false,
+    walkabilityActive: false,
+    walkabilityAgentPos: null,
+    walkabilityRadiusMeters: 1000,
+    walkabilityReqFuncs: 'retail, clinic, school',
+    walkabilityAutoDistribute: false,
+    walkabilityTargetFulfill: 'N/A',
+    walkabilityActiveNodes: 0,
+    walkabilityAvgDist: '--',
+    walkabilityPaths: [],
+    walkabilityArcs: [],
+    walkabilityGraphNodes: [],
+    setWalkabilityActive: (val) => set({ walkabilityActive: val }),
+    setWalkabilityAgentPos: (pos) => set({ walkabilityAgentPos: pos }),
+    setWalkabilityConfig: (conf) => set(state => ({ ...state, ...conf })),
+    setWalkabilityRadiusMeters: (val) => set({ walkabilityRadiusMeters: val }),
+    setWalkabilityStats: (stats) => set(state => ({ ...state, ...stats })),
+    setShowDiagnostics: (show) => set({ showDiagnostics: show }),
+    setAllBuildings: (blds) => set({ allBuildings: blds }),
+    setSelectedBuildingId: (id) => set({ selectedBuildingId: id }),
+    setBuildingEdits: (edits) => set((state) => ({ buildingEdits: typeof edits === 'function' ? edits(state.buildingEdits) : edits })),
+    setBuildingColorMode: (mode) => set({ buildingColorMode: mode }),
+    setSolidColor: (c) => set({ solidColor: c }),
+    setFunctionColors: (fn, c) => set(state => ({ functionColors: { ...state.functionColors, [fn]: c } })),
+    setFunctionColorsBatch: (dict) => set(state => ({ functionColors: { ...state.functionColors, ...dict } })),
+    loadSceneConfig: (data) => set({ 
+        buildingEdits: data.buildingEdits || {}, 
+        buildingColorMode: data.buildingColorMode || 'solid',
+        solidColor: data.solidColor || '#ffffff',
+        functionColors: data.functionColors || { residential: '#3b82f6', commercial: '#f97316', industrial: '#64748b', office: '#06b6d4', educational: '#eab308', retail: '#ef4444', clinic: '#10b981', school: '#8b5cf6' }
+    })
 }));
 
-const InstancedVoxels = ({ data, material, count, vGeom, colors }) => {
-    const meshRef = useRef();
+const InstancedVoxels = React.forwardRef(({ data, material, count, vGeom, colors, onClick, onPointerOver, onPointerOut }, forwardedRef) => {
+    const internalMeshRef = useRef();
+    const meshRef = forwardedRef || internalMeshRef;
+    
     useEffect(() => {
         if (meshRef.current && data) {
             meshRef.current.instanceMatrix.array.set(data);
@@ -21,17 +65,20 @@ const InstancedVoxels = ({ data, material, count, vGeom, colors }) => {
             meshRef.current.frustumCulled = false;
         }
     }, [data, count]);
+    const internalColorRef = useRef();
+    const activeColorRef = internalColorRef;
+
     if (!data || count === 0) return null;
     return (
-        <instancedMesh ref={meshRef} args={[vGeom, material, count]} receiveShadow castShadow frustumCulled={false}>
-            {colors && <instancedBufferAttribute attach="instanceColor" args={[colors, 3]} />}
+        <instancedMesh ref={meshRef} args={[vGeom, material, count]} receiveShadow castShadow frustumCulled={false} onClick={onClick} onPointerOver={onPointerOver} onPointerOut={onPointerOut}>
+            {colors && <instancedBufferAttribute ref={internalColorRef} attach="instanceColor" args={[colors, 3]} />}
         </instancedMesh>
     );
-};
+});
 
 
 const dbPromise = new Promise((resolve) => {
-    const request = indexedDB.open('UrbanOSM', 35);
+    const request = indexedDB.open('UrbanOSM', 38);
     request.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (db.objectStoreNames.contains('cache')) db.deleteObjectStore('cache');
@@ -39,6 +86,7 @@ const dbPromise = new Promise((resolve) => {
     };
     request.onsuccess = (e) => resolve(e.target.result);
     request.onerror = () => resolve(null);
+    request.onblocked = () => resolve(null);
 });
 
 const saveToCache = async (key, data) => {
@@ -163,6 +211,55 @@ function PlatformBase({ w, d, refEn, minH, water }) {
     );
 }
 
+function IsochroneOverlay({ nodes, w, d, minH }) {
+    const [texture, setTexture] = useState(null);
+
+    useEffect(() => {
+        if (!nodes || nodes.length === 0) {
+            setTexture(null);
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 1024;
+        canvas.height = 1024;
+        const ctx = canvas.getContext('2d');
+        
+        ctx.clearRect(0, 0, 1024, 1024);
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.4)'; // transparent red
+        
+        nodes.forEach(n => {
+            const cx = (n.x / w) * 1024;
+            const cy = (n.y / d) * 1024; // map UI space to physical Canvas space
+            ctx.beginPath();
+            ctx.arc(cx, cy, 35, 0, 2 * Math.PI); // blob radius
+            ctx.fill();
+        });
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.flipY = false;
+        tex.anisotropy = 16;
+        setTexture(tex);
+
+        return () => { tex.dispose(); };
+    }, [nodes, w, d]);
+
+    if (!texture) return null;
+
+    return (
+        <mesh position={[w / 2, minH + 1.5, -d / 2]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[w, d]} />
+            <meshBasicMaterial 
+                color="#ef4444" 
+                alphaMap={texture} 
+                transparent={true} 
+                opacity={0.8} 
+                depthWrite={false}
+            />
+        </mesh>
+    );
+}
+
 function OsmModel({ bounds, refEn }) {
     const [bldgs, setBldgs] = useState([]);
     const [hwys, setHwys] = useState([]);
@@ -171,9 +268,117 @@ function OsmModel({ bounds, refEn }) {
     const [w, setW] = useState(800);
     const [d, setD] = useState(800);
     const [minH, setMinH] = useState(0);
-    const [osmStatus, setOsmStatus] = useState('Awaiting Geographic Boundaries...');
 
-    const { getEl } = useStore();
+    const { getEl, buildingEdits, buildingColorMode, solidColor, functionColors, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityReqFuncs, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill } = useStore();
+    const buildingMeshRef = useRef(null);
+    const [roadGraph, setRoadGraph] = useState(null);
+
+    useEffect(() => {
+        if (hwys.length > 0) setRoadGraph(buildRoadGraph(hwys));
+    }, [hwys]);
+
+    useEffect(() => {
+        if (!roadGraph || !walkabilityAgentPos) return;
+        const stats = computeWalkability(roadGraph, walkabilityAgentPos, walkabilityRadiusMeters);
+        
+        const reqFns = walkabilityReqFuncs.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        const withinBids = new Set();
+        let satisfiability = {};
+        reqFns.forEach(fn => satisfiability[fn] = 0);
+        
+        const editsToApply = { ...buildingEdits };
+        let madeEdits = false;
+        const newArcs = [];
+
+        bldgs.forEach(b => {
+            const bx = (b.minX + b.maxX) / 2;
+            const by = (b.minY + b.maxY) / 2;
+            
+            for (let node of stats.reachableNodes) {
+                if (Math.hypot(bx - node.x, by - node.y) < 100) {
+                    withinBids.add(b.id);
+                    
+                    const edit = editsToApply[b.id] || {};
+                    let currFunc = 'unknown';
+                    
+                    if (edit.func) {
+                        currFunc = edit.func;
+                    } else if (edit.tags || b.tags) {
+                        const tags = { ...(b.tags || {}), ...(edit.tags || {}) };
+                        const fT = tags.building || tags.amenity || 'unknown';
+                        let parsed = fT.toLowerCase();
+                        if (parsed === 'yes') parsed = tags.amenity || 'unknown';
+                        if (parsed === 'apartments' || parsed === 'house') parsed = 'residential';
+                        if (parsed === 'shop' || parsed === 'supermarket') parsed = 'retail';
+                        if (parsed === 'warehouse') parsed = 'industrial';
+                        if (parsed === 'university' || parsed === 'kindergarten') parsed = 'school';
+                        if (parsed === 'doctors') parsed = 'clinic';
+                        currFunc = parsed;
+                    }
+                    
+                    if (satisfiability[currFunc] !== undefined) {
+                        satisfiability[currFunc]++;
+                        if (satisfiability[currFunc] === 1 || walkabilityTargetFulfill === 'N/A') { 
+                            // Only draw an arc to the first one found, or maybe all of them?
+                            // Let's just draw arcs to the first few to avoid visual clutter
+                            if (satisfiability[currFunc] <= 2) {
+                                newArcs.push({
+                                    pos: [bx, minH + 50, -by],
+                                    color: functionColors[currFunc] || '#ff0055'
+                                });
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        });
+        
+        if (walkabilityAutoDistribute && reqFns.length > 0) {
+            let availableBids = Array.from(withinBids);
+            for (let reqFn of reqFns) {
+                if (satisfiability[reqFn] === 0 && availableBids.length > 0) {
+                    const rndIdx = Math.floor(Math.random() * availableBids.length);
+                    const bid = availableBids[rndIdx];
+                    availableBids.splice(rndIdx, 1);
+                    
+                    const assignColor = functionColors[reqFn] || '#ff0055';
+                    editsToApply[bid] = { ...editsToApply[bid], func: reqFn, color: assignColor };
+                    satisfiability[reqFn]++;
+                    madeEdits = true;
+                    
+                    const targetB = bldgs.find(xb => xb.id === bid);
+                    if (targetB) {
+                        newArcs.push({
+                            pos: [(targetB.minX + targetB.maxX) / 2, minH + 50, -(targetB.minY + targetB.maxY) / 2],
+                            color: assignColor
+                        });
+                    }
+                }
+            }
+        }
+        
+        if (madeEdits) {
+            setBuildingEdits(editsToApply);
+            setBuildingColorMode('property');
+        }
+
+        let totalRecs = 0;
+        let fulfilled = 0;
+        for (let v of Object.values(satisfiability)) {
+            totalRecs++;
+            if (v > 0) fulfilled++;
+        }
+        
+        setWalkabilityStats({
+            walkabilityActiveNodes: stats.reachableNodes.length,
+            walkabilityTargetFulfill: `${fulfilled}/${totalRecs}`,
+            walkabilityAvgDist: Math.floor(stats.reachableNodes.length > 0 ? (walkabilityRadiusMeters / 2) : 0),
+            walkabilityPaths: stats.paths,
+            walkabilityGraphNodes: stats.reachableNodes,
+            walkabilityArcs: newArcs
+        });
+    }, [walkabilityAgentPos, walkabilityRadiusMeters, roadGraph, walkabilityReqFuncs, walkabilityAutoDistribute]);
 
     const loadTerrainHeights = async (minLon, minLat, maxLon, maxLat) => {
         const zoom = 14;
@@ -183,23 +388,30 @@ function OsmModel({ bounds, refEn }) {
         const yMin = lat2tile(maxLat, zoom), yMax = lat2tile(minLat, zoom);
 
         const tiles = {};
+        const promises = [];
         for (let x = xMin; x <= xMax; x++) {
             for (let y = yMin; y <= yMax; y++) {
-                try {
-                    const res = await fetch(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${zoom}/${x}/${y}.png`);
-                    if (!res.ok) continue;
-                    const blob = await res.blob();
-                    const img = new Image();
-                    img.src = URL.createObjectURL(blob);
-                    await new Promise(r => img.onload = r);
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 256; canvas.height = 256;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-                    tiles[`${x}_${y}`] = ctx.getImageData(0, 0, 256, 256).data;
-                } catch (e) { }
+                promises.push((async () => {
+                    try {
+                        const res = await fetch(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${zoom}/${x}/${y}.png`);
+                        if (!res.ok) return;
+                        const blob = await res.blob();
+                        const img = new Image();
+                        img.src = URL.createObjectURL(blob);
+                        await new Promise(r => {
+                            img.onload = r;
+                            img.onerror = r;
+                        });
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 256; canvas.height = 256;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        tiles[`${x}_${y}`] = ctx.getImageData(0, 0, 256, 256).data;
+                    } catch (e) { }
+                })());
             }
         }
+        await Promise.all(promises);
 
         useStore.setState({
             getEl: (rawLon, rawLat) => {
@@ -220,8 +432,12 @@ function OsmModel({ bounds, refEn }) {
     };
 
     useEffect(() => {
+        if (!bounds) return;
         useStore.setState({ currentBounds: bounds });
-        if (refEn) loadTerrainHeights(bounds[0], bounds[1], bounds[2], bounds[3]);
+        if (refEn) {
+            setOsmStatus('Extracting 3D Topographical Maps...');
+            loadTerrainHeights(bounds[0], bounds[1], bounds[2], bounds[3]);
+        }
         else useStore.setState({ getEl: () => 0 });
     }, [bounds, refEn]);
 
@@ -234,72 +450,118 @@ function OsmModel({ bounds, refEn }) {
         const b = `${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
-            if (cached) {
+            if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
                 setOsmStatus('');
                 setMinH(cached.computedMinH);
                 setBldgs(cached.blds); setHwys(cached.hwys); setWater(cached.watr); setSand(cached.snd);
+                useStore.getState().setAllBuildings(cached.blds);
                 return;
             }
 
             const fetchOsmData = async (minLon, minLat, maxLon, maxLat) => {
-                const TILE_DEG = 0.02;
-                const tiles = [];
-                for (let lon = minLon; lon < maxLon; lon += TILE_DEG) {
-                    for (let lat = minLat; lat < maxLat; lat += TILE_DEG) {
-                        tiles.push([
-                            lon, lat,
-                            Math.min(lon + TILE_DEG, maxLon),
-                            Math.min(lat + TILE_DEG, maxLat)
-                        ]);
-                    }
-                }
-                setOsmStatus(`Downloading OSM data (${tiles.length} tiles)...`);
+                setOsmStatus('Downloading geometry from Overpass (heavy)...');
+                
+                const query = `
+                    [out:xml][timeout:90];
+                    (
+                      way["building"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["highway"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["natural"="coastline"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["natural"="sand"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["natural"="beach"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["waterway"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["water"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["landuse"="basin"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["landuse"="reservoir"](${minLat},${minLon},${maxLat},${maxLon});
+                      relation["building"](${minLat},${minLon},${maxLat},${maxLon});
+                      relation["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
+                      relation["natural"="bay"](${minLat},${minLon},${maxLat},${maxLon});
+                      relation["waterway"](${minLat},${minLon},${maxLat},${maxLon});
+                      relation["water"](${minLat},${minLon},${maxLat},${maxLon});
+                    );
+                    (._;>;);
+                    out body;
+                `;
+                
                 const allWays = [];
                 const allRelations = [];
-                let done = 0;
-                for (const [tMinLon, tMinLat, tMaxLon, tMaxLat] of tiles) {
-                    try {
-                        const res = await fetch(`https://api.openstreetmap.org/api/0.6/map?bbox=${tMinLon},${tMinLat},${tMaxLon},${tMaxLat}`);
-                        if (!res.ok) { done++; continue; }
-                        const xml = await res.text();
-                        const parser = new DOMParser();
-                        const doc = parser.parseFromString(xml, 'text/xml');
-
-                        const nodes = {};
-                        doc.querySelectorAll('node').forEach(n => {
-                            nodes[n.getAttribute('id')] = {
-                                lon: parseFloat(n.getAttribute('lon')),
-                                lat: parseFloat(n.getAttribute('lat'))
-                            };
-                        });
-
-                        const wayMap = {};
-                        doc.querySelectorAll('way').forEach(way => {
-                            const tags = {};
-                            way.querySelectorAll('tag').forEach(t => tags[t.getAttribute('k')] = t.getAttribute('v'));
-                            const nds = Array.from(way.querySelectorAll('nd')).map(nd => nodes[nd.getAttribute('ref')]).filter(Boolean);
-                            if (nds.length > 2) allWays.push({ tags, geometry: nds });
-                            wayMap[way.getAttribute('id')] = nds;
-                        });
-
-                        // Parse relations for multipolygon water
-                        doc.querySelectorAll('relation').forEach(rel => {
-                            const tags = {};
-                            rel.querySelectorAll(':scope > tag').forEach(t => tags[t.getAttribute('k')] = t.getAttribute('v'));
-                            const members = Array.from(rel.querySelectorAll('member')).map(m => ({
-                                type: m.getAttribute('type'),
-                                ref: m.getAttribute('ref'),
-                                role: m.getAttribute('role') || '',
-                                geometry: m.getAttribute('type') === 'way' ? (wayMap[m.getAttribute('ref')] || null) : null
-                            }));
-                            if (members.some(m => m.geometry)) {
-                                allRelations.push({ tags, members });
+                try {
+                        let res;
+                        let endpoint = 'Overpass POST';
+                        try {
+                            const params = new URLSearchParams();
+                            params.append('data', query);
+                            res = await fetch(`https://overpass-api.de/api/interpreter`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: params.toString(),
+                                cache: 'no-store'
+                            });
+                            if (!res.ok) throw new Error('POST failed');
+                        } catch (postErr) {
+                            endpoint = 'Overpass GET';
+                            res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`, { cache: 'no-store' });
+                            
+                            // If Overpass GET also fails or is empty, use OSM API directly
+                            if (!res.ok) {
+                                endpoint = 'OSM API';
+                                res = await fetch(`https://api.openstreetmap.org/api/0.6/map?bbox=${sMinLon},${sMinLat},${sMaxLon},${sMaxLat}`, { cache: 'no-store' });
                             }
-                        });
+                        }
+                        
+                    if (!res.ok) throw new Error(`${endpoint} failed: ` + res.status);
+                    let xml = await res.text();
+                    
+                    if (!xml || xml.trim().length === 0) {
+                        endpoint = 'OSM API Fallback';
+                        res = await fetch(`https://api.openstreetmap.org/api/0.6/map?bbox=${sMinLon},${sMinLat},${sMaxLon},${sMaxLat}`, { cache: 'no-store' });
+                        if (!res.ok) throw new Error('OSM Fallback failed: ' + res.status);
+                        xml = await res.text();
+                    }
 
-                        done++;
-                        setOsmStatus(`Downloading OSM data (${done}/${tiles.length} tiles)...`);
-                    } catch (e) { done++; }
+                    const xmlStrSample = xml.length + " chars " + (xml.substring(0, 30));
+                    setDiagnosticInfo({ err: `Endpoint: ${endpoint}` });
+                    setOsmStatus('Parsing XML nodes...');
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(xml, 'text/xml');
+
+                    const nodes = {};
+                    Array.from(doc.getElementsByTagName('node')).forEach(n => {
+                        nodes[n.getAttribute('id')] = {
+                            lon: parseFloat(n.getAttribute('lon')),
+                            lat: parseFloat(n.getAttribute('lat'))
+                        };
+                    });
+
+                    const wayMap = {};
+                    Array.from(doc.getElementsByTagName('way')).forEach(way => {
+                        const tags = {};
+                        Array.from(way.getElementsByTagName('tag')).forEach(t => tags[t.getAttribute('k')] = t.getAttribute('v'));
+                        const nds = Array.from(way.getElementsByTagName('nd')).map(nd => nodes[nd.getAttribute('ref')]).filter(Boolean);
+                        if (nds.length > 2) allWays.push({ id: way.getAttribute('id'), tags, geometry: nds });
+                        wayMap[way.getAttribute('id')] = nds;
+                    });
+
+                    Array.from(doc.getElementsByTagName('relation')).forEach(rel => {
+                        const tags = {};
+                        Array.from(rel.getElementsByTagName('tag')).forEach(t => tags[t.getAttribute('k')] = t.getAttribute('v'));
+                        const members = Array.from(rel.getElementsByTagName('member')).map(m => ({
+                            type: m.getAttribute('type'),
+                            ref: m.getAttribute('ref'),
+                            role: m.getAttribute('role') || '',
+                            geometry: m.getAttribute('type') === 'way' ? (wayMap[m.getAttribute('ref')] || null) : null
+                        }));
+                        if (members.some(m => m.geometry)) {
+                            allRelations.push({ id: rel.getAttribute('id'), tags, members });
+                        }
+                    });
+                    setDiagnosticInfo({ ways: allWays.length, xmlHead: xmlStrSample });
+                } catch (e) {
+                    console.error("Overpass failed", e);
+                    setDiagnosticInfo({ err: e.message });
+                    setOsmStatus('ERROR: Overpass API Failed. You may be rate-limited.');
+                    setTimeout(() => setOsmStatus(''), 8000);
                 }
                 return { ways: allWays, relations: allRelations };
             };
@@ -311,6 +573,7 @@ function OsmModel({ bounds, refEn }) {
 
             fetchOsmData(sMinLon, sMinLat, sMaxLon, sMaxLat)
                 .then(allWays => {
+                    if (allWays.ways.length === 0) return; // Keep error on screen if threw
                     setOsmStatus('');
                     const blds = [], hwys = [], watr = [], snd = [];
                     const unclosedCoasts = [];
@@ -336,11 +599,7 @@ function OsmModel({ bounds, refEn }) {
                                 if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
                             });
                             
-                            const eps = 0.5;
-                            const isOnBorder = minX <= eps || maxX >= wVal - eps || minY <= eps || maxY >= dVal - eps;
-                            if (!isOnBorder) {
-                                blds.push({ p: pts, h, ls, el: 0, minX, maxX, minY, maxY });
-                            }
+                            blds.push({ id: el.id, tags: el.tags, p: pts, h, ls, el: 0, minX, maxX, minY, maxY });
                         } else if (el.tags?.highway) {
                             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                             pts.forEach(p => {
@@ -660,7 +919,9 @@ function OsmModel({ bounds, refEn }) {
                         if (blds.length > 0) console.log('[WATER DEBUG] First building pt:', blds[0].p[0]);
                         if (watr.length > 0) console.log('[WATER DEBUG] First water pt:', watr[0].p[0], 'pts count:', watr[0].p.length);
                         setMinH(computedMinH);
+                        setDiagnosticInfo({ bldgs: blds.length });
                         setBldgs(blds); setHwys(hwys); setWater(watr); setSand(snd);
+                        useStore.getState().setAllBuildings(blds);
                         saveToCache(b, { blds, hwys, watr, snd, computedMinH });
                     } else { setOsmStatus('No vector data found in this area.'); setTimeout(() => setOsmStatus(''), 8000); }
                 })
@@ -679,8 +940,8 @@ function OsmModel({ bounds, refEn }) {
         new THREE.Plane(new THREE.Vector3(0, 0, -1), d / 2)
     ], [w, d]);
 
-    const { terrainData, waterData, buildingData, roadData, sandData } = useMemo(() => {
-        if (!bldgs || !water || w === 0 || d === 0) return { terrainData: new Float32Array(0), waterData: new Float32Array(0), buildingData: new Float32Array(0), roadData: new Float32Array(0), sandData: new Float32Array(0) };
+    const { terrainData, waterData, buildingData, roadData, sandData, buildingIdsByInstance, buildingColors, buildingInstanceMeta } = useMemo(() => {
+        if (!bldgs || !water || w === 0 || d === 0) return { terrainData: new Float32Array(0), waterData: new Float32Array(0), buildingData: new Float32Array(0), roadData: new Float32Array(0), sandData: new Float32Array(0), buildingIdsByInstance: [], buildingColors: null, buildingInstanceMeta: [] };
         const dummy = new THREE.Object3D();
         const cDummy = new THREE.Color();
         const vSize = Math.max(1, Math.floor(w / 800)); // Optimal high resolution
@@ -695,8 +956,11 @@ function OsmModel({ bounds, refEn }) {
         const bArr = new Float32Array(maxVoxels * 16);
         const rArr = new Float32Array(maxVoxels * 16);
         const sArr = new Float32Array(maxVoxels * 16);
+        const bCol = new Float32Array(maxVoxels * 3);
+        const bInstIds = [];
+        const bMeta = [];
 
-        let tIdx = 0, wIdx = 0, bIdx = 0, rIdx = 0, sIdx = 0;
+        let tIdx = 0, wIdx = 0, bIdx = 0, rIdx = 0, sIdx = 0, bcIdx = 0;
 
         const cb = useStore.getState().currentBounds;
 
@@ -787,12 +1051,13 @@ function OsmModel({ bounds, refEn }) {
                     }
                 }
 
+                let matchedBuilding = null;
                 // Priority 2: Building
                 if (!isWater) {
                     for (let b of cellBldgs) {
                         if (lx < b.minX || lx > b.maxX || lz < b.minY || lz > b.maxY) continue;
                         if (ptInPoly([lx, lz], b.p)) {
-                            isBuilding = true; bHeight = b.h; break;
+                            isBuilding = true; bHeight = b.h; matchedBuilding = b; break;
                         }
                     }
                 }
@@ -843,12 +1108,30 @@ function OsmModel({ bounds, refEn }) {
                 }
 
                 if (!isWater && isBuilding) {
+                    const bid = matchedBuilding.id;
+
                     let bhY = topY + Math.floor(bHeight / hSize) * hSize;
                     if (bhY >= topY + hSize) {
                         let bH = bhY - (topY + hSize) + hSize;
                         let bP_y = (topY + hSize) + bH / 2 - hSize / 2;
                         setMatrix(bArr, bIdx, x, bP_y, z, vSize, bH, vSize);
+                        
+                        bInstIds.push(bid);
                         bIdx += 16;
+                        
+                        const funcTag = matchedBuilding.tags?.building || matchedBuilding.tags?.amenity || 'unknown';
+                        let func = funcTag.toLowerCase();
+                        if (func === 'yes') func = matchedBuilding.tags?.amenity || 'unknown';
+                        if (func === 'apartments' || func === 'house') func = 'residential';
+                        if (func === 'shop' || func === 'supermarket') func = 'retail';
+                        if (func === 'warehouse') func = 'industrial';
+                        if (func === 'university' || func === 'kindergarten') func = 'school';
+                        if (func === 'doctors') func = 'clinic';
+                        
+                        const propCol = matchedBuilding.tags?.colour || matchedBuilding.tags?.['building:colour'];
+                        bMeta.push({ bid, topY, hSize, bHeight, func, propCol, bP_y_base: bP_y, rawTags: matchedBuilding.tags || {} });
+                        
+                        bCol[bcIdx++] = 1; bCol[bcIdx++] = 1; bCol[bcIdx++] = 1;
                     }
                 } else if (isRoad) {
                     let rP_y = topY + hSize / 2 + 0.25;
@@ -869,9 +1152,96 @@ function OsmModel({ bounds, refEn }) {
             waterData: wArr.slice(0, wIdx),
             buildingData: bArr.slice(0, bIdx),
             roadData: rArr.slice(0, rIdx),
-            sandData: sArr.slice(0, sIdx)
+            sandData: sArr.slice(0, sIdx),
+            buildingIdsByInstance: bInstIds,
+            buildingColors: bCol.slice(0, bcIdx),
+            buildingInstanceMeta: bMeta
         };
     }, [w, d, bldgs, water, sand, hwys, minH, refEn, getEl]);
+
+    useEffect(() => {
+        if (!buildingMeshRef.current || !buildingInstanceMeta || !buildingIdsByInstance) return;
+        const mesh = buildingMeshRef.current;
+        const colorAttr = mesh.instanceColor || mesh.geometry?.attributes?.instanceColor;
+        if (!mesh || !colorAttr || !mesh.instanceMatrix) return;
+
+        const matrixArray = mesh.instanceMatrix.array;
+        const colorArray = colorAttr.array;
+        let c = new THREE.Color();
+        let shouldUpdateMatrix = false;
+        let shouldUpdateColor = false;
+        
+        // Setup dynamic function extraction cache
+        let newColorsDict = null;
+
+        for (let i = 0; i < buildingInstanceMeta.length; i++) {
+            const meta = buildingInstanceMeta[i];
+            const edit = buildingEdits[meta.bid] || {};
+
+            const activeHeight = edit.height !== undefined ? edit.height : meta.bHeight;
+            let bhY = meta.topY + Math.floor(activeHeight / meta.hSize) * meta.hSize;
+            let bH = Math.max(0, bhY - (meta.topY + meta.hSize) + meta.hSize);
+            let bP_y = (meta.topY + meta.hSize) + bH / 2 - meta.hSize / 2;
+
+            if (matrixArray[i * 16 + 5] !== bH || matrixArray[i * 16 + 13] !== bP_y) {
+                matrixArray[i * 16 + 5] = bH;
+                matrixArray[i * 16 + 13] = bP_y;
+                shouldUpdateMatrix = true;
+            }
+
+            // Figure out active function
+            let activeFunc = meta.func;
+            if (edit.tags) {
+                const fT = edit.tags.building || edit.tags.amenity || activeFunc;
+                let parsed = fT.toLowerCase();
+                if (parsed === 'yes') parsed = edit.tags.amenity || 'unknown';
+                if (parsed === 'apartments' || parsed === 'house') parsed = 'residential';
+                if (parsed === 'shop' || parsed === 'supermarket') parsed = 'retail';
+                if (parsed === 'warehouse') parsed = 'industrial';
+                if (parsed === 'university' || parsed === 'kindergarten') parsed = 'school';
+                if (parsed === 'doctors') parsed = 'clinic';
+                activeFunc = parsed;
+            }
+            
+            // Assign random color if this function doesn't exist yet!
+            if (!functionColors[activeFunc] && (!newColorsDict || !newColorsDict[activeFunc])) {
+                if (!newColorsDict) newColorsDict = {};
+                const hue = Math.floor(Math.random() * 360);
+                newColorsDict[activeFunc] = `hsl(${hue}, 70%, 50%)`;
+            }
+
+            if (selectedBuildingId === meta.bid) {
+                c.set('#ff0055'); // Highlight selection
+            } else {
+                if (buildingColorMode === 'property') { // Custom Color mode
+                    if (edit.color) {
+                        try { c.set(edit.color); } catch(e) { c.set(solidColor); }
+                    } else {
+                        try { c.set(meta.propCol || solidColor); } catch(e) { c.set(solidColor); }
+                    }
+                } else if (buildingColorMode === 'function') {
+                    c.set((newColorsDict && newColorsDict[activeFunc]) || functionColors[activeFunc] || '#f1f5f9');
+                } else {
+                    c.set(solidColor);
+                }
+            }
+
+            if (colorArray[i * 3] !== c.r || colorArray[i * 3 + 1] !== c.g || colorArray[i * 3 + 2] !== c.b) {
+                colorArray[i * 3] = c.r;
+                colorArray[i * 3 + 1] = c.g;
+                colorArray[i * 3 + 2] = c.b;
+                shouldUpdateColor = true;
+            }
+        }
+
+        if (shouldUpdateMatrix) mesh.instanceMatrix.needsUpdate = true;
+        if (shouldUpdateColor) colorAttr.needsUpdate = true;
+        
+        if (newColorsDict) {
+            useStore.getState().setFunctionColorsBatch(newColorsDict);
+        }
+
+    }, [buildingInstanceMeta, buildingIdsByInstance, buildingEdits, buildingColorMode, solidColor, functionColors, selectedBuildingId]);
 
 
     const vGeom = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
@@ -901,19 +1271,102 @@ function OsmModel({ bounds, refEn }) {
 
     return (
         <>
-            {osmStatus && (
-                <Html center position={[0, Math.max(-minH, 0) + 100, 0]}>
-                    <div className="bg-white/90 backdrop-blur-md border border-slate-200 text-slate-800 px-6 py-3 rounded-lg shadow-lg font-mono text-xs whitespace-nowrap pointer-events-none">
-                        [DIAGNOSTIC] {osmStatus}
+            {showDiagnostics && (
+                <Html position={[-w/2 + 20, 100, -d/2 + 20]}>
+                    <div className="bg-black/80 text-green-400 p-2 font-mono text-xs whitespace-nowrap pointer-events-none rounded border border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]">
+                        <div><b>DIAGNOSTICS</b></div>
+                        <div>W: {Math.floor(w)} D: {Math.floor(d)} MinH: {Math.floor(minH)}</div>
+                        <div>Bldgs array: {bldgs.length} Water: {water.length} Hwys: {hwys.length}</div>
+                        <div>Instanced Terrain: {terrainData.length / 16}</div>
+                        <div>Instanced Bldgs: {buildingData.length / 16}</div>
+                        <div>Data Ways: {useStore.getState().diagnosticInfo.ways}</div>
+                        <div>Error: {useStore.getState().diagnosticInfo.err || 'None'}</div>
+                        <div style={{maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis'}}>XML Head: {useStore.getState().diagnosticInfo.xmlHead}</div>
                     </div>
                 </Html>
             )}
-            <group position={[-w / 2, 0, d / 2]}>
+            <group 
+                position={[-w / 2, 0, d / 2]}
+                onPointerDown={(e) => {
+                    if (walkabilityActive && e.intersections.length > 0) {
+                        e.stopPropagation();
+                        // For raycasts hitting descendants (terrain/roads)
+                        // Group position is [-w/2, 0, d/2]
+                        // World point = Group + Local -> Local = World - Group
+                        const pt = e.point;
+                        const lX = pt.x + w / 2;
+                        const lY = -(pt.z - d / 2);
+                        setWalkabilityAgentPos([lX, lY, pt.y]);
+                    }
+                }}
+                onClick={(e) => {
+                    useStore.getState().setSelectedBuildingId(null);
+                }}
+            >
+                {w > 0 && d > 0 && (
+                    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[w / 2, minH, -d / 2]}>
+                        <planeGeometry args={[w, d]} />
+                        <meshStandardMaterial color="#86b992" wireframe metalness={0.1} roughness={0.8} />
+                    </mesh>
+                )}
                 <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
                 <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
-                <InstancedVoxels data={buildingData} material={buildingMaterial} count={buildingData.length / 16} vGeom={vGeom} />
+                <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} />
+                <InstancedVoxels 
+                    ref={buildingMeshRef}
+                    data={buildingData} 
+                    material={buildingMaterial} 
+                    count={buildingData.length / 16} 
+                    vGeom={vGeom} 
+                    colors={buildingColors}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if(buildingIdsByInstance && buildingIdsByInstance[e.instanceId]) {
+                            setSelectedBuildingId(buildingIdsByInstance[e.instanceId]);
+                        }
+                    }}
+                    onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
+                    onPointerOut={(e) => { e.stopPropagation(); document.body.style.cursor = 'default'; }}
+                />
                 <InstancedVoxels data={roadData} material={roadMaterial} count={roadData.length / 16} vGeom={vGeom} />
                 <InstancedVoxels data={waterData} material={waterMaterial} count={waterData.length / 16} vGeom={vGeom} />
+                
+                {useStore.getState().walkabilityArcs && useStore.getState().walkabilityArcs.map((arc, idx) => {
+                    const midPt = [
+                        (walkabilityAgentPos[0] + arc.pos[0]) / 2,
+                        Math.max(walkabilityAgentPos[2], arc.pos[1]) + 150, // Arc rises 150m up
+                        (-walkabilityAgentPos[1] + arc.pos[2]) / 2
+                    ];
+                    return (
+                        <QuadraticBezierLine 
+                            key={`arc-${idx}`}
+                            start={[walkabilityAgentPos[0], walkabilityAgentPos[2] + 15, -walkabilityAgentPos[1]]}
+                            end={[arc.pos[0], arc.pos[1] + 15, arc.pos[2]]}
+                            mid={midPt}
+                            color={arc.color}
+                            lineWidth={4}
+                            dashed={true}
+                            dashScale={50}
+                            dashSize={1}
+                            gapSize={0.5}
+                            transparent
+                            opacity={0.8}
+                        />
+                    );
+                })}
+
+                {walkabilityAgentPos && (
+                    <Sphere args={[15]} position={[walkabilityAgentPos[0], walkabilityAgentPos[2], -walkabilityAgentPos[1]]}>
+                        <meshBasicMaterial color="#ef4444" />
+                    </Sphere>
+                )}
+                {walkabilityPaths && walkabilityPaths.map((path, idx) => {
+                    const points = [
+                        new THREE.Vector3(path[0][0], minH + 5, -path[0][1]),
+                        new THREE.Vector3(path[1][0], minH + 5, -path[1][1])
+                    ];
+                    return <Line key={idx} points={points} color="#ef4444" lineWidth={3} />;
+                })}
             </group>
         </>
     );
@@ -922,7 +1375,12 @@ function OsmModel({ bounds, refEn }) {
 
 export default function Environment3D({ regionBounds, reliefEnabled }) {
     return (
-        <Canvas gl={{ localClippingEnabled: true, antialias: true, logarithmicDepthBuffer: true }} camera={{ position: [0, 400, 800], fov: 35, near: 1, far: 20000 }} shadows>
+        <Canvas 
+            onPointerMissed={() => useStore.getState().setSelectedBuildingId(null)}
+            gl={{ localClippingEnabled: true, antialias: true, logarithmicDepthBuffer: true }} 
+            camera={{ position: [0, 400, 800], fov: 35, near: 1, far: 20000 }} 
+            shadows
+        >
             <color attach="background" args={['#f8fafc']} />
             <ambientLight intensity={1.2} color="#ffffff" />
             <directionalLight position={[400, 800, 200]} intensity={1.5} color="#ffffff" castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-1000} shadow-camera-right={1000} shadow-camera-top={1000} shadow-camera-bottom={-1000} shadow-bias={-0.001} shadow-normalBias={0.05} />
