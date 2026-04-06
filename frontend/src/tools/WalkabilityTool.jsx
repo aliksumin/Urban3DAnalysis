@@ -9,7 +9,7 @@ export default function WalkabilityTool({ regionBounds }) {
     const [functions, setFunctions] = useState('retail, clinic, school');
     const [autoDistribute, setAutoDistribute] = useState(false);
 
-    const { functionColors, walkabilityActive, setWalkabilityActive, setWalkabilityRadiusMeters, walkabilityActiveNodes, walkabilityTargetFulfill, walkabilityAvgDist, setWalkabilityConfig } = useStore();
+    const { functionColors, walkabilityActive, setWalkabilityActive, setWalkabilityRadiusMeters, walkabilityActiveNodes, walkabilityTargetFulfill, walkabilityAvgDist, setWalkabilityConfig, walkabilityArcs } = useStore();
 
     useEffect(() => {
         // speed is km/h. radius is minutes. max distance in meters:
@@ -35,6 +35,16 @@ export default function WalkabilityTool({ regionBounds }) {
         setFunctions(Array.from(newSet).join(', '));
     };
 
+    const handleSelectAll = () => {
+        const allFuncs = Object.keys(functionColors).filter(fn => fn !== 'unknown');
+        const newSet = new Set([...activeFuncsSet, ...allFuncs]);
+        setFunctions(Array.from(newSet).join(', '));
+    };
+
+    const handleDeselectAll = () => {
+        setFunctions('');
+    };
+
     const handleAddCustom = (e) => {
         if (e.key === 'Enter' && e.target.value) {
             const val = e.target.value.toLowerCase().trim();
@@ -47,6 +57,8 @@ export default function WalkabilityTool({ regionBounds }) {
         }
     };
 
+    const fulfilledColors = new Set((walkabilityArcs || []).map(a => a.color));
+
     return (
         <>
             <PanelSection title="Isochrone Matrix">
@@ -57,19 +69,29 @@ export default function WalkabilityTool({ regionBounds }) {
             </PanelSection>
 
             <PanelSection title="Required Infrastructure">
+                <div className="flex items-center justify-between px-1 mb-1.5">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Target Tracking</span>
+                    <div className="flex gap-2">
+                        <button onClick={handleSelectAll} className="text-[10px] text-blue-500 hover:text-blue-600 transition-colors">Select All</button>
+                        <button onClick={handleDeselectAll} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">None</button>
+                    </div>
+                </div>
                 <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto custom-scrollbar border border-slate-200 rounded p-1 mb-2 bg-slate-50">
-                    {Object.entries(functionColors).filter(([fn]) => fn !== 'unknown').map(([fn, color]) => (
-                        <label key={fn} className="flex items-center gap-3 p-1.5 hover:bg-slate-100 rounded cursor-pointer transition-colors">
-                            <input 
-                                type="checkbox" 
-                                checked={activeFuncsSet.has(fn)}
-                                onChange={() => handleToggle(fn)}
-                                className="accent-blue-500 w-3.5 h-3.5"
-                            />
-                            <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }}></div>
-                            <span className="text-xs text-slate-700 capitalize flex-1 truncate">{fn}</span>
-                        </label>
-                    ))}
+                    {Object.entries(functionColors).filter(([fn]) => fn !== 'unknown').map(([fn, color]) => {
+                        const isTargeted = fulfilledColors.has(color);
+                        return (
+                            <label key={fn} className={`flex items-center gap-3 p-1.5 hover:bg-slate-100 rounded cursor-pointer transition-colors ${isTargeted ? 'bg-blue-50 border border-blue-200 shadow-sm' : 'border border-transparent'}`}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={activeFuncsSet.has(fn)}
+                                    onChange={() => handleToggle(fn)}
+                                    className="accent-blue-500 w-3.5 h-3.5"
+                                />
+                                <div className="w-3 h-3 rounded-full shrink-0 shadow-sm border border-black/10" style={{ backgroundColor: color }}></div>
+                                <span className={`text-xs capitalize flex-1 truncate ${isTargeted ? 'font-semibold text-blue-800' : 'text-slate-700'}`}>{fn}</span>
+                            </label>
+                        );
+                    })}
                     <div className="px-1.5 py-1 mt-1 border-t border-slate-200">
                         <input 
                             type="text" 

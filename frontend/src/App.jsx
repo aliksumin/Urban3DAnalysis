@@ -150,9 +150,10 @@ export default function App() {
 
       <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleOpenScene} />
 
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-4 pointer-events-none w-[320px] max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar pr-1">
+      <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-4 pointer-events-none max-h-[calc(100vh-2rem)] pr-1">
          {isSettingsOpen && (
-            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col overflow-hidden shrink-0">
+            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'horizontal', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px' }}>
+              <div style={{ direction: 'ltr', width: '100%', display: 'flex', flexDirection: 'column' }}>
                <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-2 font-medium text-slate-700 text-xs">
                      <Settings size={14} className="text-blue-500" /> Object Stylization
@@ -200,11 +201,13 @@ export default function App() {
                      )}
                   </div>
                </div>
+              </div>
             </div>
          )}
 
          {activeTool && regionBounds && (
-            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col overflow-hidden shrink-0">
+            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'horizontal', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px' }}>
+              <div style={{ direction: 'ltr', width: '100%', display: 'flex', flexDirection: 'column' }}>
                <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-2 font-medium text-slate-700 text-xs uppercase tracking-wide">
                      {activeTool === 'walkability' ? <Navigation size={14} className="text-blue-500" /> : <Wind size={14} className="text-blue-500" />}
@@ -220,11 +223,13 @@ export default function App() {
                    {activeTool === 'walkability' ? <WalkabilityTool regionBounds={regionBounds} /> : <WindTool regionBounds={regionBounds} />}
                  </div>
                )}
+              </div>
             </div>
          )}
          
          {selectedBuildingData && (
-            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col overflow-hidden shrink-0">
+            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'horizontal', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px' }}>
+              <div style={{ direction: 'ltr', width: '100%', display: 'flex', flexDirection: 'column' }}>
                <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-2 font-medium text-slate-700 text-xs">
                      <Building2 size={14} className="text-emerald-500" /> Building {selectedBuildingData.id.slice(0, 10)}
@@ -289,6 +294,7 @@ export default function App() {
                     </div>
                   )}
                </div>
+              </div>
             </div>
          )}
       </div>

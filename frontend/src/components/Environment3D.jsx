@@ -210,8 +210,7 @@ function PlatformBase({ w, d, refEn, minH, water }) {
         </mesh>
     );
 }
-
-function IsochroneOverlay({ nodes, w, d, minH }) {
+function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb }) {
     const [texture, setTexture] = useState(null);
 
     useEffect(() => {
@@ -244,11 +243,32 @@ function IsochroneOverlay({ nodes, w, d, minH }) {
         return () => { tex.dispose(); };
     }, [nodes, w, d]);
 
+    const geometry = useMemo(() => {
+        // High fidelity plane to gracefully hug voxel terrain elevations perfectly!
+        const geo = new THREE.PlaneGeometry(w, d, Math.max(1, Math.floor(w / 40)), Math.max(1, Math.floor(d / 40)));
+        geo.rotateX(-Math.PI / 2); // Stand it upright into world coordinates (Y up)
+        
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+            const lx = pos.getX(i) + w / 2;     // 0 to w
+            const localZ = pos.getZ(i) - d / 2; // -d to 0
+            const lz = -localZ;                 // 0 to d
+            
+            const [lon, lat] = cb && refEn ? reproject(lx, lz, cb[0], cb[1]) : [0, 0];
+            let rawEl = refEn && getEl && cb ? getEl(lon, lat) : 0;
+            if (rawEl == null || isNaN(rawEl)) rawEl = 0;
+            
+            let topY = Math.floor(Math.max(0, rawEl - minH) / 10) * 10;
+            pos.setY(i, topY + 5.5); // Precisely 5.5 units up allows it to cleanly hover above standard voxel roads
+        }
+        geo.computeVertexNormals();
+        return geo;
+    }, [w, d, minH, refEn, getEl, cb]);
+
     if (!texture) return null;
 
     return (
-        <mesh position={[w / 2, minH + 1.5, -d / 2]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[w, d]} />
+        <mesh position={[w / 2, 0, -d / 2]} geometry={geometry}>
             <meshBasicMaterial 
                 color="#ef4444" 
                 alphaMap={texture} 
@@ -269,7 +289,7 @@ function OsmModel({ bounds, refEn }) {
     const [d, setD] = useState(800);
     const [minH, setMinH] = useState(0);
 
-    const { getEl, buildingEdits, buildingColorMode, solidColor, functionColors, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityReqFuncs, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill } = useStore();
+    const { getEl, buildingEdits, buildingColorMode, solidColor, functionColors, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityReqFuncs, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs } = useStore();
     const buildingMeshRef = useRef(null);
     const [roadGraph, setRoadGraph] = useState(null);
 
@@ -323,6 +343,7 @@ function OsmModel({ bounds, refEn }) {
                             // Let's just draw arcs to the first few to avoid visual clutter
                             if (satisfiability[currFunc] <= 2) {
                                 newArcs.push({
+                                    bid: b.id,
                                     pos: [bx, minH + 50, -by],
                                     color: functionColors[currFunc] || '#ff0055'
                                 });
@@ -350,6 +371,7 @@ function OsmModel({ bounds, refEn }) {
                     const targetB = bldgs.find(xb => xb.id === bid);
                     if (targetB) {
                         newArcs.push({
+                            bid: bid,
                             pos: [(targetB.minX + targetB.maxX) / 2, minH + 50, -(targetB.minY + targetB.maxY) / 2],
                             color: assignColor
                         });
@@ -1210,19 +1232,33 @@ function OsmModel({ bounds, refEn }) {
                 newColorsDict[activeFunc] = `hsl(${hue}, 70%, 50%)`;
             }
 
+            let finalColorStr = solidColor;
+            
+            if (buildingColorMode === 'property') {
+                if (edit.color) {
+                    finalColorStr = edit.color;
+                } else {
+                    finalColorStr = meta.propCol || solidColor;
+                }
+            } else if (buildingColorMode === 'function') {
+                finalColorStr = (newColorsDict && newColorsDict[activeFunc]) || functionColors[activeFunc] || '#f1f5f9';
+            }
+
             if (selectedBuildingId === meta.bid) {
                 c.set('#ff0055'); // Highlight selection
             } else {
-                if (buildingColorMode === 'property') { // Custom Color mode
-                    if (edit.color) {
-                        try { c.set(edit.color); } catch(e) { c.set(solidColor); }
+                try { c.set(finalColorStr); } catch(e) { c.set(solidColor); }
+                
+                // Emphasize walkability targets!
+                if (walkabilityActive && walkabilityArcs && walkabilityArcs.length > 0) {
+                    const isArcTarget = walkabilityArcs.some(a => a.bid === meta.bid);
+                    if (isArcTarget) {
+                        const arcColor = walkabilityArcs.find(a => a.bid === meta.bid).color;
+                        c.set(arcColor); // Ensure it matches perfectly
                     } else {
-                        try { c.set(meta.propCol || solidColor); } catch(e) { c.set(solidColor); }
+                        // Dim visually non-involved infrastructure to create contrast
+                        c.multiplyScalar(0.4);
                     }
-                } else if (buildingColorMode === 'function') {
-                    c.set((newColorsDict && newColorsDict[activeFunc]) || functionColors[activeFunc] || '#f1f5f9');
-                } else {
-                    c.set(solidColor);
                 }
             }
 
@@ -1241,7 +1277,7 @@ function OsmModel({ bounds, refEn }) {
             useStore.getState().setFunctionColorsBatch(newColorsDict);
         }
 
-    }, [buildingInstanceMeta, buildingIdsByInstance, buildingEdits, buildingColorMode, solidColor, functionColors, selectedBuildingId]);
+    }, [buildingInstanceMeta, buildingIdsByInstance, buildingEdits, buildingColorMode, solidColor, functionColors, selectedBuildingId, walkabilityActive, walkabilityArcs]);
 
 
     const vGeom = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
@@ -1311,7 +1347,7 @@ function OsmModel({ bounds, refEn }) {
                 )}
                 <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
                 <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
-                <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} />
+                <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} />
                 <InstancedVoxels 
                     ref={buildingMeshRef}
                     data={buildingData} 
