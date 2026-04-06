@@ -68,15 +68,15 @@ export default function WalkabilityTool({ regionBounds }) {
                 </div>
             </PanelSection>
 
-            <PanelSection title="Required Infrastructure">
-                <div className="flex items-center justify-between px-1 mb-1.5">
+            <PanelSection title="Required Infrastructure" className="flex-1 flex flex-col min-h-0 min-h-[0px] shrink overflow-hidden">
+                <div className="flex items-center justify-between px-1 mb-1.5 shrink-0">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Target Tracking</span>
                     <div className="flex gap-2">
                         <button onClick={handleSelectAll} className="text-[10px] text-blue-500 hover:text-blue-600 transition-colors">Select All</button>
                         <button onClick={handleDeselectAll} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">None</button>
                     </div>
                 </div>
-                <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto custom-scrollbar border border-slate-200 rounded p-1 mb-2 bg-slate-50">
+                <div className="flex flex-col gap-1.5 flex-1 min-h-[50px] overflow-y-auto custom-scrollbar border border-slate-200 rounded p-1 mb-2 bg-slate-50">
                     {Object.entries(functionColors).filter(([fn]) => fn !== 'unknown').map(([fn, color]) => {
                         const isTargeted = fulfilledColors.has(color);
                         return (

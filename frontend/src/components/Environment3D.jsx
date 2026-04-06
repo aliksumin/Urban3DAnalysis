@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, extend } from '@react-three/fiber';
-import { OrbitControls, Html, Line, Sphere, QuadraticBezierLine } from '@react-three/drei';
+import { OrbitControls, Html, Line, Sphere, QuadraticBezierLine, Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import { Water } from 'three-stdlib';
 import { buildRoadGraph, computeWalkability } from '../utils/walkabilityGraph';
@@ -51,7 +51,11 @@ export const useStore = create((set) => ({
         buildingColorMode: data.buildingColorMode || 'solid',
         solidColor: data.solidColor || '#ffffff',
         functionColors: data.functionColors || { residential: '#3b82f6', commercial: '#f97316', industrial: '#64748b', office: '#06b6d4', educational: '#eab308', retail: '#ef4444', clinic: '#10b981', school: '#8b5cf6' }
-    })
+    }),
+    timeOfDay: 14,
+    setTimeOfDay: (val) => set({ timeOfDay: val }),
+    weatherClear: 1.0,
+    setWeatherClear: (val) => set({ weatherClear: val })
 }));
 
 const InstancedVoxels = React.forwardRef(({ data, material, count, vGeom, colors, onClick, onPointerOver, onPointerOut }, forwardedRef) => {
@@ -1407,7 +1411,47 @@ function OsmModel({ bounds, refEn }) {
         </>
     );
 }
+function DynamicLighting() {
+    const timeOfDay = useStore(state => state.timeOfDay);
+    const weatherClear = useStore(state => state.weatherClear);
 
+    const theta = ((timeOfDay - 6) / 24) * Math.PI * 2;
+    const elevation = Math.sin(theta);
+    const azimuth = Math.cos(theta);
+    
+    const isDay = elevation > 0;
+    const sunIntensity = isDay ? Math.pow(Math.max(0, elevation), 0.5) * (0.3 + 0.7 * weatherClear) : 0;
+    
+    const sunPos = new THREE.Vector3(azimuth * 1000, elevation * 1000, azimuth * 500);
+
+    const ambientInt = (0.2 + (isDay ? 0.6 * sunIntensity : 0.0)) * (weatherClear > 0.5 ? 1.0 : 0.7);
+    
+    // Smooth transition from sunrise/sunset orange to noon white to midnight blue
+    const sunColor = isDay ? new THREE.Color('#ff8a66').lerp(new THREE.Color('#ffffff'), Math.min(1, elevation * 4)) : new THREE.Color('#223355');
+    const fogColor = isDay ? new THREE.Color('#f0f5fa').lerp(new THREE.Color('#778899'), 1 - weatherClear) : new THREE.Color('#05070a');
+
+    return (
+        <>
+            <color attach="background" args={[fogColor]} />
+            <fog attach="fog" near={500} far={15000} color={fogColor} />
+            <ambientLight intensity={ambientInt} color={sunColor} />
+            {isDay && (
+                <directionalLight 
+                    position={sunPos} 
+                    intensity={1.8 * sunIntensity} 
+                    color={sunColor} 
+                    castShadow 
+                    shadow-mapSize={[2048, 2048]} 
+                    shadow-camera-left={-1000} shadow-camera-right={1000} 
+                    shadow-camera-top={1000} shadow-camera-bottom={-1000} 
+                    shadow-bias={-0.001} shadow-normalBias={0.05} 
+                />
+            )}
+            <directionalLight position={[-200, 200, -200]} intensity={isDay ? 0.3 * weatherClear : 0.1} color="#ffffff" />
+            <Sky distance={450000} sunPosition={sunPos} turbidity={10 - weatherClear * 8} rayleigh={isDay ? 1.5 : 0.1} mieCoefficient={0.005} mieDirectionalG={0.8} />
+        </>
+    );
+}
 
 export default function Environment3D({ regionBounds, reliefEnabled }) {
     return (
@@ -1417,10 +1461,7 @@ export default function Environment3D({ regionBounds, reliefEnabled }) {
             camera={{ position: [0, 400, 800], fov: 35, near: 1, far: 20000 }} 
             shadows
         >
-            <color attach="background" args={['#f8fafc']} />
-            <ambientLight intensity={1.2} color="#ffffff" />
-            <directionalLight position={[400, 800, 200]} intensity={1.5} color="#ffffff" castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-1000} shadow-camera-right={1000} shadow-camera-top={1000} shadow-camera-bottom={-1000} shadow-bias={-0.001} shadow-normalBias={0.05} />
-            <directionalLight position={[-200, 200, -200]} intensity={0.5} color="#ffffff" />
+            <DynamicLighting />
 
             {regionBounds ? <OsmModel bounds={regionBounds} refEn={reliefEnabled} /> : <PlatformBase w={800} d={800} refEn={false} minH={0} />}
 

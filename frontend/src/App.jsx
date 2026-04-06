@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Environment3D, { useStore } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
-import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag } from 'lucide-react';
+import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun } from 'lucide-react';
 import WalkabilityTool from './tools/WalkabilityTool';
 import WindTool from './tools/WindTool';
 import { Panel, PanelHeader, PanelSection, Button, Metric, Input } from './ui';
@@ -17,7 +17,7 @@ export default function App() {
   const [isAnalysisMinimized, setAnalysisMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, functionColors, setFunctionColors, osmStatus, showDiagnostics, setShowDiagnostics } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, functionColors, setFunctionColors, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear } = useStore();
 
   const selectedBuildingData = selectedBuildingId ? allBuildings.find(b => b.id === selectedBuildingId) : null;
   const currentEdits = selectedBuildingData ? (buildingEdits[selectedBuildingId] || {}) : {};
@@ -152,15 +152,15 @@ export default function App() {
 
       <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-4 pointer-events-none max-h-[calc(100vh-2rem)] pr-1">
          {isSettingsOpen && (
-            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'horizontal', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px' }}>
-              <div style={{ direction: 'ltr', width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'both', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px', minHeight: '300px', maxHeight: '90vh' }}>
+              <div style={{ direction: 'ltr', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-2 font-medium text-slate-700 text-xs">
                      <Settings size={14} className="text-blue-500" /> Object Stylization
                   </div>
                   <button className="w-5 h-5 flex items-center justify-center hover:bg-red-100 hover:text-red-500 rounded text-slate-400 font-bold ml-1 text-sm bg-transparent border-0 cursor-pointer" onClick={() => setSettingsOpen(false)}>×</button>
                </div>
-               <div className="p-5 flex flex-col gap-4 text-xs text-slate-600">
+               <div className="p-5 flex flex-col gap-4 text-xs text-slate-600 flex-1 overflow-y-auto custom-scrollbar">
                   <div className="flex flex-col gap-2">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="radio" name="colorMode" checked={buildingColorMode === 'solid'} onChange={() => setBuildingColorMode('solid')} className="accent-blue-500" />
@@ -206,8 +206,8 @@ export default function App() {
          )}
 
          {activeTool && regionBounds && (
-            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'horizontal', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px' }}>
-              <div style={{ direction: 'ltr', width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'both', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px', minHeight: '300px', maxHeight: '90vh' }}>
+              <div style={{ direction: 'ltr', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-2 font-medium text-slate-700 text-xs uppercase tracking-wide">
                      {activeTool === 'walkability' ? <Navigation size={14} className="text-blue-500" /> : <Wind size={14} className="text-blue-500" />}
@@ -219,7 +219,7 @@ export default function App() {
                   </div>
                </div>
                {!isAnalysisMinimized && (
-                 <div className="p-4 max-h-[350px] overflow-y-auto custom-scrollbar">
+                 <div className="p-4 flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar">
                    {activeTool === 'walkability' ? <WalkabilityTool regionBounds={regionBounds} /> : <WindTool regionBounds={regionBounds} />}
                  </div>
                )}
@@ -228,15 +228,15 @@ export default function App() {
          )}
          
          {selectedBuildingData && (
-            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'horizontal', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px' }}>
-              <div style={{ direction: 'ltr', width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'both', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px', minHeight: '300px', maxHeight: '90vh' }}>
+              <div style={{ direction: 'ltr', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-2 font-medium text-slate-700 text-xs">
                      <Building2 size={14} className="text-emerald-500" /> Building {selectedBuildingData.id.slice(0, 10)}
                   </div>
                   <button className="w-5 h-5 flex items-center justify-center hover:bg-red-100 hover:text-red-500 rounded text-slate-400 font-bold ml-1 text-sm bg-transparent border-0 cursor-pointer" onClick={() => setSelectedBuildingId(null)}>×</button>
                </div>
-               <div className="p-5 flex flex-col gap-5">
+               <div className="p-5 flex flex-col gap-5 flex-1 overflow-y-auto custom-scrollbar">
                   <div className="flex flex-col gap-2">
                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">HEIGHT OVERRIDE (m)</span>
                      <div className="flex gap-2 items-center">
@@ -297,6 +297,30 @@ export default function App() {
               </div>
             </div>
          )}
+      </div>
+
+      <div className="absolute bottom-6 left-6 z-10 pointer-events-auto w-72">
+         <div className="bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center gap-2 bg-slate-50 font-medium text-slate-700 text-xs">
+               <Sun size={14} className="text-amber-500" /> Environment Conditions
+            </div>
+            <div className="p-4 flex flex-col gap-6">
+               <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                     <span>Time of Day</span>
+                     <span className="text-amber-600 font-mono tracking-normal bg-amber-50 px-1.5 py-0.5 border border-amber-200 rounded">{`${Math.floor(timeOfDay).toString().padStart(2, '0')}:${Math.floor((timeOfDay % 1) * 60).toString().padStart(2, '0')}`}</span>
+                  </div>
+                  <input type="range" min="0" max="24" step="0.25" value={timeOfDay} onChange={(e) => setTimeOfDay(parseFloat(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-amber-500" />
+               </div>
+               <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                     <span>Weather</span>
+                     <span className="text-blue-600 font-mono tracking-normal bg-blue-50 px-1.5 py-0.5 border border-blue-200 rounded">{weatherClear > 0.8 ? 'Clear' : weatherClear > 0.4 ? 'Overcast' : 'Stormy'}</span>
+                  </div>
+                  <input type="range" min="0" max="1" step="0.01" value={weatherClear} onChange={(e) => setWeatherClear(parseFloat(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-blue-500" />
+               </div>
+            </div>
+         </div>
       </div>
 
       <MapSelectorModal
