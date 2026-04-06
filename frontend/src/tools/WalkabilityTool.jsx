@@ -3,46 +3,26 @@ import { PanelSection, PanelFooter, Button, Slider, Input, Switch, Metric } from
 import { Target, Crosshair } from 'lucide-react';
 import { useStore } from '../components/Environment3D';
 
-export default function WalkabilityTool({ regionBounds }) {
-    const [radius, setRadius] = useState(15);
-    const [speed, setSpeed] = useState(4.0);
-    const [functions, setFunctions] = useState('retail, clinic, school');
-    const [autoDistribute, setAutoDistribute] = useState(false);
+export function WalkabilityInfrastructurePanel() {
+    const { functionColors, walkabilityArcs, walkabilityReqFuncs, walkabilityAutoDistribute, setWalkabilityConfig } = useStore();
 
-    const { functionColors, walkabilityActive, setWalkabilityActive, setWalkabilityRadiusMeters, walkabilityActiveNodes, walkabilityTargetFulfill, walkabilityAvgDist, setWalkabilityConfig, walkabilityArcs } = useStore();
-
-    useEffect(() => {
-        // speed is km/h. radius is minutes. max distance in meters:
-        // (speed * 1000 meters / 60 minutes) * radius
-        const maxDistMeters = (speed * 1000 / 60) * radius;
-        setWalkabilityRadiusMeters(maxDistMeters);
-    }, [radius, speed, setWalkabilityRadiusMeters]);
-
-    useEffect(() => {
-        setWalkabilityConfig({ walkabilityReqFuncs: functions, walkabilityAutoDistribute: autoDistribute });
-    }, [functions, autoDistribute, setWalkabilityConfig]);
-
-    const handleDeploy = () => {
-        setWalkabilityActive(!walkabilityActive);
-    };
-
-    const activeFuncsSet = new Set(functions.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+    const activeFuncsSet = new Set((walkabilityReqFuncs || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
 
     const handleToggle = (fn) => {
         const newSet = new Set(activeFuncsSet);
         if (newSet.has(fn)) newSet.delete(fn);
         else newSet.add(fn);
-        setFunctions(Array.from(newSet).join(', '));
+        setWalkabilityConfig({ walkabilityReqFuncs: Array.from(newSet).join(', ') });
     };
 
     const handleSelectAll = () => {
         const allFuncs = Object.keys(functionColors).filter(fn => fn !== 'unknown');
         const newSet = new Set([...activeFuncsSet, ...allFuncs]);
-        setFunctions(Array.from(newSet).join(', '));
+        setWalkabilityConfig({ walkabilityReqFuncs: Array.from(newSet).join(', ') });
     };
 
     const handleDeselectAll = () => {
-        setFunctions('');
+        setWalkabilityConfig({ walkabilityReqFuncs: '' });
     };
 
     const handleAddCustom = (e) => {
@@ -51,7 +31,7 @@ export default function WalkabilityTool({ regionBounds }) {
             if (val && val !== 'unknown') {
                 const newSet = new Set(activeFuncsSet);
                 newSet.add(val);
-                setFunctions(Array.from(newSet).join(', '));
+                setWalkabilityConfig({ walkabilityReqFuncs: Array.from(newSet).join(', ') });
                 e.target.value = '';
             }
         }
@@ -60,23 +40,17 @@ export default function WalkabilityTool({ regionBounds }) {
     const fulfilledColors = new Set((walkabilityArcs || []).map(a => a.color));
 
     return (
-        <>
-            <PanelSection title="Isochrone Matrix">
-                <div className="flex flex-col gap-6">
-                    <Slider label="Walkable Radius" min={5} max={45} step={1} value={radius} onChange={setRadius} suffix=" min" />
-                    <Slider label="Agent Velocity" min={2.0} max={10.0} step={0.5} value={speed} onChange={setSpeed} suffix=" km/h" />
-                </div>
-            </PanelSection>
-
-            <PanelSection title="Required Infrastructure" className="flex-1 flex flex-col min-h-0 min-h-[0px] shrink overflow-hidden">
-                <div className="flex items-center justify-between px-1 mb-1.5 shrink-0">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Target Tracking</span>
-                    <div className="flex gap-2">
-                        <button onClick={handleSelectAll} className="text-[10px] text-blue-500 hover:text-blue-600 transition-colors">Select All</button>
-                        <button onClick={handleDeselectAll} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">None</button>
+        <div className="flex flex-col h-full">
+            <PanelSection title="Required Infrastructure" className="flex-1 flex flex-col min-h-0 shrink overflow-hidden" noPadding>
+                <div className="flex flex-col h-full px-4 pt-3 pb-3">
+                    <div className="flex items-center justify-between mb-1.5 shrink-0">
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Target Tracking</span>
+                        <div className="flex gap-2">
+                            <button onClick={handleSelectAll} className="text-[10px] text-blue-500 hover:text-blue-600 transition-colors">Select All</button>
+                            <button onClick={handleDeselectAll} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">None</button>
+                        </div>
                     </div>
-                </div>
-                <div className="flex flex-col gap-1.5 flex-1 min-h-[50px] overflow-y-auto custom-scrollbar border border-slate-200 rounded p-1 mb-2 bg-slate-50">
+                    <div className="flex flex-col gap-1.5 flex-1 min-h-[50px] overflow-y-auto custom-scrollbar border border-slate-200 rounded p-1 mb-2 bg-slate-50">
                     {Object.entries(functionColors).filter(([fn]) => fn !== 'unknown').map(([fn, color]) => {
                         const isTargeted = fulfilledColors.has(color);
                         return (
@@ -101,10 +75,44 @@ export default function WalkabilityTool({ regionBounds }) {
                         />
                     </div>
                 </div>
-                <div className="mt-4">
-                    <Switch checked={autoDistribute} onChange={setAutoDistribute} label="Auto-Distribute Missing" description="Deploy generative node assignments if targets lack essential facilities." />
+                <div className="mt-4 shrink-0">
+                    <Switch checked={walkabilityAutoDistribute} onChange={(v) => setWalkabilityConfig({ walkabilityAutoDistribute: v })} label="Auto-Distribute Missing" description="Deploy generative node assignments if targets lack essential facilities." />
+                </div>
                 </div>
             </PanelSection>
+        </div>
+    );
+}
+
+export default function WalkabilityTool({ regionBounds }) {
+    const [radius, setRadius] = useState(15);
+    const [speed, setSpeed] = useState(4.0);
+
+    const { walkabilityActive, setWalkabilityActive, setWalkabilityRadiusMeters, walkabilityActiveNodes, walkabilityTargetFulfill, walkabilityAvgDist } = useStore();
+
+    useEffect(() => {
+        const maxDistMeters = (speed * 1000 / 60) * radius;
+        setWalkabilityRadiusMeters(maxDistMeters);
+    }, [radius, speed, setWalkabilityRadiusMeters]);
+
+    const handleDeploy = () => {
+        if (walkabilityActive) {
+            useStore.getState().setWalkabilityAgentPos(null);
+            useStore.getState().setWalkabilityConfig({ walkabilityGraphNodes: [], walkabilityPaths: [], walkabilityArcs: [] });
+        }
+        setWalkabilityActive(!walkabilityActive);
+    };
+
+    return (
+        <>
+            <PanelSection title="Isochrone Matrix">
+                <div className="flex flex-col gap-6">
+                    <Slider label="Walkable Radius" min={5} max={45} step={1} value={radius} onChange={setRadius} suffix=" min" />
+                    <Slider label="Agent Velocity" min={2.0} max={10.0} step={0.5} value={speed} onChange={setSpeed} suffix=" km/h" />
+                </div>
+            </PanelSection>
+
+
 
             <PanelSection title="Network Diagnostic" className="flex-1">
                 <div className="flex flex-col gap-1">

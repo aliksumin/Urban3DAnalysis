@@ -58,7 +58,7 @@ export const useStore = create((set) => ({
     setWeatherClear: (val) => set({ weatherClear: val })
 }));
 
-const InstancedVoxels = React.forwardRef(({ data, material, count, vGeom, colors, onClick, onPointerOver, onPointerOut }, forwardedRef) => {
+const InstancedVoxels = React.forwardRef(({ data, material, count, vGeom, colors, emissives, onClick, onPointerOver, onPointerOut }, forwardedRef) => {
     const internalMeshRef = useRef();
     const meshRef = forwardedRef || internalMeshRef;
     
@@ -68,7 +68,10 @@ const InstancedVoxels = React.forwardRef(({ data, material, count, vGeom, colors
             meshRef.current.instanceMatrix.needsUpdate = true;
             meshRef.current.frustumCulled = false;
         }
-    }, [data, count]);
+        if (meshRef.current && emissives) {
+            meshRef.current.geometry.setAttribute('instanceEmissive', new THREE.InstancedBufferAttribute(emissives, 3));
+        }
+    }, [data, count, emissives]);
     const internalColorRef = useRef();
     const activeColorRef = internalColorRef;
 
@@ -214,7 +217,8 @@ function PlatformBase({ w, d, refEn, minH, water }) {
         </mesh>
     );
 }
-function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb }) {
+
+function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb, netColor, walkabilityAgentPos, radiusMeters }) {
     const [texture, setTexture] = useState(null);
 
     useEffect(() => {
@@ -223,25 +227,38 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb }) {
             return;
         }
 
+        // Only mask out the nodes spheres
         const canvas = document.createElement('canvas');
         canvas.width = 1024;
         canvas.height = 1024;
         const ctx = canvas.getContext('2d');
         
-        ctx.clearRect(0, 0, 1024, 1024);
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.4)'; // transparent red
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, 1024, 1024);
+
+        // Mathematical radius: 50 meters logic range
+        // 50m / 800m = ~6.25% of map * 1024px = ~64px
+        const radPx = (50 / w) * 1024;
         
+        ctx.fillStyle = 'white';
+        // Add a slight blur to create a more organic, continuous accessibility heat-zone
+        ctx.filter = 'blur(12px)';
         nodes.forEach(n => {
             const cx = (n.x / w) * 1024;
-            const cy = (n.y / d) * 1024; // map UI space to physical Canvas space
+            const cy = (n.y / d) * 1024; 
             ctx.beginPath();
-            ctx.arc(cx, cy, 35, 0, 2 * Math.PI); // blob radius
+            ctx.arc(cx, cy, radPx, 0, 2 * Math.PI); 
             ctx.fill();
         });
+        ctx.filter = 'none';
 
         const tex = new THREE.CanvasTexture(canvas);
         tex.flipY = false;
         tex.anisotropy = 16;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = true;
+        tex.needsUpdate = true;
         setTexture(tex);
 
         return () => { tex.dispose(); };
@@ -249,7 +266,7 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb }) {
 
     const geometry = useMemo(() => {
         // High fidelity plane to gracefully hug voxel terrain elevations perfectly!
-        const geo = new THREE.PlaneGeometry(w, d, Math.max(1, Math.floor(w / 40)), Math.max(1, Math.floor(d / 40)));
+        const geo = new THREE.PlaneGeometry(w, d, Math.max(1, Math.floor(w / 3.5)), Math.max(1, Math.floor(d / 3.5))); // dense grid
         geo.rotateX(-Math.PI / 2); // Stand it upright into world coordinates (Y up)
         
         const pos = geo.attributes.position;
@@ -262,8 +279,11 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb }) {
             let rawEl = refEn && getEl && cb ? getEl(lon, lat) : 0;
             if (rawEl == null || isNaN(rawEl)) rawEl = 0;
             
-            let topY = Math.floor(Math.max(0, rawEl - minH) / 10) * 10;
-            pos.setY(i, topY + 5.5); // Precisely 5.5 units up allows it to cleanly hover above standard voxel roads
+            let smoothY = Math.max(0, rawEl - minH);
+            
+            // Constantly follow the earth topography without artificial ballooning
+            // Raised slightly higher to avoid clipping with the discrete voxel steps
+            pos.setY(i, smoothY + 6.0);
         }
         geo.computeVertexNormals();
         return geo;
@@ -274,11 +294,13 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb }) {
     return (
         <mesh position={[w / 2, 0, -d / 2]} geometry={geometry}>
             <meshBasicMaterial 
-                color="#ef4444" 
+                color={netColor || "#ffffff"} 
                 alphaMap={texture} 
                 transparent={true} 
-                opacity={0.8} 
+                wireframe={true} 
+                opacity={0.35} 
                 depthWrite={false}
+                blending={THREE.AdditiveBlending}
             />
         </mesh>
     );
@@ -616,7 +638,13 @@ function OsmModel({ bounds, refEn }) {
                         let ls = el.geometry.map(g => [g.lon, g.lat]);
                         pts = pts.map(p => unproject(p[0], p[1], sMinLon, sMinLat));
 
-                        if (el.tags?.building) {
+                        const isCoast = el.tags?.natural === 'coastline';
+                        const isWater = el.tags?.natural === 'water' || el.tags?.waterway === 'riverbank' || el.tags?.waterway === 'dock' ||
+                            el.tags?.water === 'lake' || el.tags?.water === 'river' || el.tags?.water === 'reservoir' ||
+                            el.tags?.water === 'basin' || el.tags?.landuse === 'basin' || el.tags?.landuse === 'reservoir' || el.tags?.natural === 'bay' || el.tags?.water === 'sea' || 
+                            el.tags?.building === 'reservoir' || el.tags?.building === 'pool' || el.tags?.amenity === 'water' || el.tags?.leisure === 'swimming_pool' || el.tags?.amenity === 'fountain';
+
+                        if (el.tags?.building && !isWater) {
                             let h = el.tags?.height ? parseFloat(el.tags.height) : (el.tags?.['building:levels'] ? parseInt(el.tags['building:levels']) * 3 : 10);
                             if (isNaN(h) || h <= 0) h = 10;
                             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -641,11 +669,6 @@ function OsmModel({ bounds, refEn }) {
                             });
                             snd.push({ p: pts, ls, minX, maxX, minY, maxY });
                         } else {
-                            const isCoast = el.tags?.natural === 'coastline';
-                            const isWater = el.tags?.natural === 'water' || el.tags?.waterway === 'riverbank' || el.tags?.waterway === 'dock' ||
-                                el.tags?.water === 'lake' || el.tags?.water === 'river' || el.tags?.water === 'reservoir' ||
-                                el.tags?.water === 'basin' || el.tags?.landuse === 'basin' || el.tags?.landuse === 'reservoir' || el.tags?.natural === 'bay' || el.tags?.water === 'sea';
-
                             if (isCoast || isWater) {
                                 // Filter out linear centerlines natively by checking if the way is topologically closed.
                                 const firstPt = pt => pt[0].toFixed(5) + ',' + pt[1].toFixed(5);
@@ -921,14 +944,11 @@ function OsmModel({ bounds, refEn }) {
                                 let minFound = Infinity;
                                 let maxFound = -Infinity;
                                 w.ls.forEach(pt => {
-                                    const lonD = Math.min(Math.abs(pt[0] - bounds[0]), Math.abs(pt[0] - bounds[2]));
-                                    const latD = Math.min(Math.abs(pt[1] - bounds[1]), Math.abs(pt[1] - bounds[3]));
-                                    if (lonD > 0.005 && latD > 0.005) {
-                                        const el = getEl(pt[0], pt[1]);
-                                        if (!isNaN(el)) {
-                                            if (el < minFound) minFound = el;
-                                            if (el > maxFound) maxFound = el;
-                                        }
+                                    // Remove bounding box constraint that arbitrarily rejected internal map lakes/ponds!
+                                    const el = getEl(pt[0], pt[1]);
+                                    if (!isNaN(el)) {
+                                        if (el < minFound) minFound = el;
+                                        if (el > maxFound) maxFound = el;
                                     }
                                 });
                                 if (minFound === Infinity) minFound = 0;
@@ -966,8 +986,8 @@ function OsmModel({ bounds, refEn }) {
         new THREE.Plane(new THREE.Vector3(0, 0, -1), d / 2)
     ], [w, d]);
 
-    const { terrainData, waterData, buildingData, roadData, sandData, buildingIdsByInstance, buildingColors, buildingInstanceMeta } = useMemo(() => {
-        if (!bldgs || !water || w === 0 || d === 0) return { terrainData: new Float32Array(0), waterData: new Float32Array(0), buildingData: new Float32Array(0), roadData: new Float32Array(0), sandData: new Float32Array(0), buildingIdsByInstance: [], buildingColors: null, buildingInstanceMeta: [] };
+    const { terrainData, waterData, buildingData, roadData, sandData, buildingIdsByInstance, buildingColors, buildingEmissives, buildingInstanceMeta } = useMemo(() => {
+        if (!bldgs || !water || w === 0 || d === 0) return { terrainData: new Float32Array(0), waterData: new Float32Array(0), buildingData: new Float32Array(0), roadData: new Float32Array(0), sandData: new Float32Array(0), buildingIdsByInstance: [], buildingColors: null, buildingEmissives: null, buildingInstanceMeta: [] };
         const dummy = new THREE.Object3D();
         const cDummy = new THREE.Color();
         const vSize = Math.max(1, Math.floor(w / 800)); // Optimal high resolution
@@ -983,6 +1003,7 @@ function OsmModel({ bounds, refEn }) {
         const rArr = new Float32Array(maxVoxels * 16);
         const sArr = new Float32Array(maxVoxels * 16);
         const bCol = new Float32Array(maxVoxels * 3);
+        const bEmi = new Float32Array(maxVoxels * 3);
         const bInstIds = [];
         const bMeta = [];
 
@@ -1121,7 +1142,8 @@ function OsmModel({ bounds, refEn }) {
                 let topY = Math.floor(Math.max(0, baseTerrain - minH) / hSize) * hSize;
 
                 if (isWater) {
-                    let waterY = Math.floor(Math.max(0, wtEl - minH + 0.1) / hSize) * hSize + hSize;
+                    // Flush with the calculated depression without artificial building hSize inflation
+                    let waterY = Math.floor(Math.max(0, wtEl - minH) / hSize) * hSize;
                     let wHeight = waterY - (-10) + hSize;
                     let wP_y = -10 + wHeight / 2 - hSize / 2;
                     setMatrix(wArr, wIdx, x, wP_y, z, vSize, wHeight, vSize);
@@ -1157,7 +1179,9 @@ function OsmModel({ bounds, refEn }) {
                         const propCol = matchedBuilding.tags?.colour || matchedBuilding.tags?.['building:colour'];
                         bMeta.push({ bid, topY, hSize, bHeight, func, propCol, bP_y_base: bP_y, rawTags: matchedBuilding.tags || {} });
                         
-                        bCol[bcIdx++] = 1; bCol[bcIdx++] = 1; bCol[bcIdx++] = 1;
+                        bCol[bcIdx] = 1; bCol[bcIdx+1] = 1; bCol[bcIdx+2] = 1;
+                        bEmi[bcIdx] = 0; bEmi[bcIdx+1] = 0; bEmi[bcIdx+2] = 0;
+                        bcIdx += 3;
                     }
                 } else if (isRoad) {
                     let rP_y = topY + hSize / 2 + 0.25;
@@ -1181,6 +1205,7 @@ function OsmModel({ bounds, refEn }) {
             sandData: sArr.slice(0, sIdx),
             buildingIdsByInstance: bInstIds,
             buildingColors: bCol.slice(0, bcIdx),
+            buildingEmissives: bEmi.slice(0, bcIdx),
             buildingInstanceMeta: bMeta
         };
     }, [w, d, bldgs, water, sand, hwys, minH, refEn, getEl]);
@@ -1189,13 +1214,17 @@ function OsmModel({ bounds, refEn }) {
         if (!buildingMeshRef.current || !buildingInstanceMeta || !buildingIdsByInstance) return;
         const mesh = buildingMeshRef.current;
         const colorAttr = mesh.instanceColor || mesh.geometry?.attributes?.instanceColor;
+        const emiAttr = mesh.geometry?.attributes?.instanceEmissive;
         if (!mesh || !colorAttr || !mesh.instanceMatrix) return;
 
         const matrixArray = mesh.instanceMatrix.array;
         const colorArray = colorAttr.array;
+        const emiArray = emiAttr ? emiAttr.array : null;
         let c = new THREE.Color();
+        let eCol = new THREE.Color();
         let shouldUpdateMatrix = false;
         let shouldUpdateColor = false;
+        let shouldUpdateEmi = false;
         
         // Setup dynamic function extraction cache
         let newColorsDict = null;
@@ -1248,6 +1277,9 @@ function OsmModel({ bounds, refEn }) {
                 finalColorStr = (newColorsDict && newColorsDict[activeFunc]) || functionColors[activeFunc] || '#f1f5f9';
             }
 
+            let isTarget = false;
+            let targetColor = null;
+
             if (selectedBuildingId === meta.bid) {
                 c.set('#ff0055'); // Highlight selection
             } else {
@@ -1255,15 +1287,21 @@ function OsmModel({ bounds, refEn }) {
                 
                 // Emphasize walkability targets!
                 if (walkabilityActive && walkabilityArcs && walkabilityArcs.length > 0) {
-                    const isArcTarget = walkabilityArcs.some(a => a.bid === meta.bid);
-                    if (isArcTarget) {
-                        const arcColor = walkabilityArcs.find(a => a.bid === meta.bid).color;
-                        c.set(arcColor); // Ensure it matches perfectly
+                    isTarget = walkabilityArcs.some(a => a.bid === meta.bid);
+                    if (isTarget) {
+                        targetColor = walkabilityArcs.find(a => a.bid === meta.bid).color;
+                        c.set(targetColor); // Ensure it matches perfectly
                     } else {
                         // Dim visually non-involved infrastructure to create contrast
                         c.multiplyScalar(0.4);
                     }
                 }
+            }
+
+            if (isTarget && targetColor) {
+                eCol.set(targetColor).multiplyScalar(2.0); // Bright glow at night
+            } else {
+                eCol.setRGB(0, 0, 0);
             }
 
             if (colorArray[i * 3] !== c.r || colorArray[i * 3 + 1] !== c.g || colorArray[i * 3 + 2] !== c.b) {
@@ -1272,10 +1310,18 @@ function OsmModel({ bounds, refEn }) {
                 colorArray[i * 3 + 2] = c.b;
                 shouldUpdateColor = true;
             }
+
+            if (emiArray && (emiArray[i * 3] !== eCol.r || emiArray[i * 3 + 1] !== eCol.g || emiArray[i * 3 + 2] !== eCol.b)) {
+                emiArray[i * 3] = eCol.r;
+                emiArray[i * 3 + 1] = eCol.g;
+                emiArray[i * 3 + 2] = eCol.b;
+                shouldUpdateEmi = true;
+            }
         }
 
         if (shouldUpdateMatrix) mesh.instanceMatrix.needsUpdate = true;
         if (shouldUpdateColor) colorAttr.needsUpdate = true;
+        if (shouldUpdateEmi && emiAttr) emiAttr.needsUpdate = true;
         
         if (newColorsDict) {
             useStore.getState().setFunctionColorsBatch(newColorsDict);
@@ -1320,14 +1366,18 @@ function OsmModel({ bounds, refEn }) {
             shader.vertexShader = shader.vertexShader.replace(
                 '#include <common>',
                 `#include <common>
-                varying vec3 vWorldPos;`
+                varying vec3 vWorldPos;
+                attribute vec3 instanceEmissive;
+                varying vec3 vInstanceEmissive;`
             );
             shader.vertexShader = shader.vertexShader.replace(
                 '#include <worldpos_vertex>',
                 `#include <worldpos_vertex>
 #ifdef USE_INSTANCING
+                vInstanceEmissive = instanceEmissive;
                 vWorldPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
 #else
+                vInstanceEmissive = vec3(0.0);
                 vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
 #endif
                 `
@@ -1337,6 +1387,7 @@ function OsmModel({ bounds, refEn }) {
                 `#include <common>
                 uniform float uDarkness;
                 varying vec3 vWorldPos;
+                varying vec3 vInstanceEmissive;
                 float random(vec2 st) {
                     return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
                 }`
@@ -1344,6 +1395,7 @@ function OsmModel({ bounds, refEn }) {
             shader.fragmentShader = shader.fragmentShader.replace(
                 '#include <emissivemap_fragment>',
                 `#include <emissivemap_fragment>
+                totalEmissiveRadiance += vInstanceEmissive;
                 vec3 worldNormal = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
                 if (abs(worldNormal.y) < 0.5 && uDarkness > 0.01) {
                     vec2 winUv = abs(worldNormal.z) > 0.5 ? vWorldPos.xy : vWorldPos.zy;
@@ -1375,6 +1427,11 @@ function OsmModel({ bounds, refEn }) {
         color: "#66ccff", transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.8, normalMap: normals, clippingPlanes: clipPlanes
     }), [normals, clipPlanes]);
 
+    // Compute dynamic aesthetic color for walkability representations
+    const timeOfDay = useStore(state => state.timeOfDay);
+    const dayFactor = Math.max(0, Math.min(1, Math.sin(((timeOfDay - 6) / 24) * Math.PI * 2) * 3));
+    const netColor = useMemo(() => new THREE.Color('#ff4d00').lerp(new THREE.Color('#0033ff'), dayFactor), [dayFactor]);
+
     return (
         <>
             {showDiagnostics && (
@@ -1394,7 +1451,12 @@ function OsmModel({ bounds, refEn }) {
             <group 
                 position={[-w / 2, 0, d / 2]}
                 onPointerDown={(e) => {
-                    if (walkabilityActive && e.intersections.length > 0) {
+                    const store = useStore.getState();
+                    const isFirstTime = !store.walkabilityAgentPos;
+                    const isValidLeftClick = isFirstTime && e.nativeEvent.button === 0;
+                    const isMiddleClick = e.nativeEvent.button === 1;
+
+                    if (walkabilityActive && (isMiddleClick || isValidLeftClick) && e.intersections.length > 0) {
                         e.stopPropagation();
                         // For raycasts hitting descendants (terrain/roads)
                         // Group position is [-w/2, 0, d/2]
@@ -1402,7 +1464,13 @@ function OsmModel({ bounds, refEn }) {
                         const pt = e.point;
                         const lX = pt.x + w / 2;
                         const lY = -(pt.z - d / 2);
-                        setWalkabilityAgentPos([lX, lY, pt.y]);
+
+                        const [lon, lat] = bounds && refEn ? reproject(lX, lY, bounds[0], bounds[1]) : [0, 0];
+                        let rawEl = refEn && store.getEl && bounds ? store.getEl(lon, lat) : 0;
+                        if (rawEl == null || isNaN(rawEl)) rawEl = 0;
+                        let agentY = Math.max(0, rawEl - minH);
+
+                        setWalkabilityAgentPos([lX, lY, agentY]);
                     }
                 }}
                 onClick={(e) => {
@@ -1417,7 +1485,7 @@ function OsmModel({ bounds, refEn }) {
                 )}
                 <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
                 <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
-                <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} />
+                <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} netColor={netColor} walkabilityAgentPos={walkabilityAgentPos} radiusMeters={useStore.getState().walkabilityRadiusMeters} />
                 <InstancedVoxels 
                     ref={buildingMeshRef}
                     data={buildingData} 
@@ -1425,6 +1493,7 @@ function OsmModel({ bounds, refEn }) {
                     count={buildingData.length / 16} 
                     vGeom={vGeom} 
                     colors={buildingColors}
+                    emissives={buildingEmissives}
                     onClick={(e) => {
                         e.stopPropagation();
                         if(buildingIdsByInstance && buildingIdsByInstance[e.instanceId]) {
@@ -1449,29 +1518,49 @@ function OsmModel({ bounds, refEn }) {
                             start={[walkabilityAgentPos[0], walkabilityAgentPos[2] + 15, -walkabilityAgentPos[1]]}
                             end={[arc.pos[0], arc.pos[1] + 15, arc.pos[2]]}
                             mid={midPt}
-                            color={arc.color}
-                            lineWidth={4}
+                            color={netColor}
+                            lineWidth={2.5}
                             dashed={true}
                             dashScale={50}
                             dashSize={1}
                             gapSize={0.5}
                             transparent
-                            opacity={0.8}
+                            opacity={1.0}
+                            blending={THREE.AdditiveBlending}
                         />
                     );
                 })}
 
                 {walkabilityAgentPos && (
-                    <Sphere args={[15]} position={[walkabilityAgentPos[0], walkabilityAgentPos[2], -walkabilityAgentPos[1]]}>
-                        <meshBasicMaterial color="#ef4444" />
-                    </Sphere>
+                    <group position={[walkabilityAgentPos[0], walkabilityAgentPos[2], -walkabilityAgentPos[1]]}>
+                        <mesh position={[-2, 5, 0]}>
+                            <boxGeometry args={[1.5, 10, 1.5]} />
+                            <meshBasicMaterial color={netColor} wireframe={true} opacity={0.9} transparent />
+                        </mesh>
+                        <mesh position={[2, 5, 0]}>
+                            <boxGeometry args={[1.5, 10, 1.5]} />
+                            <meshBasicMaterial color={netColor} wireframe={true} opacity={0.9} transparent />
+                        </mesh>
+                        <mesh position={[0, 15, 0]}>
+                            <boxGeometry args={[6, 10, 3]} />
+                            <meshBasicMaterial color={netColor} wireframe={true} transparent opacity={1.0} />
+                        </mesh>
+                        <mesh position={[0, 22, 0]}>
+                            <boxGeometry args={[4, 4, 4]} />
+                            <meshBasicMaterial color={netColor} wireframe={true} opacity={1.0} transparent />
+                        </mesh>
+                        <mesh position={[0, 15, 0]}>
+                            <sphereGeometry args={[2, 8, 8]} />
+                            <meshBasicMaterial color={netColor} />
+                        </mesh>
+                    </group>
                 )}
                 {walkabilityPaths && walkabilityPaths.map((path, idx) => {
                     const points = [
                         new THREE.Vector3(path[0][0], minH + 5, -path[0][1]),
                         new THREE.Vector3(path[1][0], minH + 5, -path[1][1])
                     ];
-                    return <Line key={idx} points={points} color="#ef4444" lineWidth={3} />;
+                    return <Line key={idx} points={points} color={netColor} lineWidth={1} transparent opacity={0.5} blending={THREE.AdditiveBlending} />;
                 })}
             </group>
         </>

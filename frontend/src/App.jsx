@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Environment3D, { useStore } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
 import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun } from 'lucide-react';
-import WalkabilityTool from './tools/WalkabilityTool';
+import WalkabilityTool, { WalkabilityInfrastructurePanel } from './tools/WalkabilityTool';
 import WindTool from './tools/WindTool';
 import { Panel, PanelHeader, PanelSection, Button, Metric, Input } from './ui';
 
@@ -298,6 +298,14 @@ export default function App() {
             </div>
          )}
       </div>
+
+      {activeTool === 'walkability' && (
+         <div className="absolute top-20 left-6 z-10 pointer-events-none w-72 h-[450px]">
+            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0 h-full" style={{ resize: 'both', overflow: 'hidden', minWidth: '250px', maxHeight: 'calc(100vh - 12rem)' }}>
+               <WalkabilityInfrastructurePanel />
+            </div>
+         </div>
+      )}
 
       <div className="absolute bottom-6 left-6 z-10 pointer-events-auto w-72">
          <div className="bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col overflow-hidden">
