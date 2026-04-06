@@ -206,7 +206,7 @@ export default function App() {
          )}
 
          {activeTool && regionBounds && (
-            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'both', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px', minHeight: '300px', maxHeight: '90vh' }}>
+            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ resize: 'both', overflow: 'hidden', direction: 'rtl', minWidth: '320px', maxWidth: '800px', minHeight: isAnalysisMinimized ? 'auto' : '300px', maxHeight: '90vh' }}>
               <div style={{ direction: 'ltr', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-2 font-medium text-slate-700 text-xs uppercase tracking-wide">

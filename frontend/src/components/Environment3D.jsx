@@ -296,6 +296,7 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb, netColor, walka
             <meshBasicMaterial 
                 color={netColor || "#ffffff"} 
                 alphaMap={texture} 
+                alphaTest={0.05}
                 transparent={true} 
                 wireframe={true} 
                 opacity={0.35} 
@@ -320,8 +321,8 @@ function OsmModel({ bounds, refEn }) {
     const [roadGraph, setRoadGraph] = useState(null);
 
     useEffect(() => {
-        if (hwys.length > 0) setRoadGraph(buildRoadGraph(hwys));
-    }, [hwys]);
+        if (hwys.length > 0) setRoadGraph(buildRoadGraph(hwys, getEl));
+    }, [hwys, getEl]);
 
     useEffect(() => {
         if (!roadGraph || !walkabilityAgentPos) return;
@@ -1477,12 +1478,7 @@ function OsmModel({ bounds, refEn }) {
                     useStore.getState().setSelectedBuildingId(null);
                 }}
             >
-                {w > 0 && d > 0 && (
-                    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[w / 2, minH, -d / 2]}>
-                        <planeGeometry args={[w, d]} />
-                        <meshStandardMaterial color="#86b992" wireframe metalness={0.1} roughness={0.8} />
-                    </mesh>
-                )}
+
                 <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
                 <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
                 <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} netColor={netColor} walkabilityAgentPos={walkabilityAgentPos} radiusMeters={useStore.getState().walkabilityRadiusMeters} />

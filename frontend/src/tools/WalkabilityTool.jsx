@@ -41,8 +41,8 @@ export function WalkabilityInfrastructurePanel() {
 
     return (
         <div className="flex flex-col h-full">
-            <PanelSection title="Required Infrastructure" className="flex-1 flex flex-col min-h-0 shrink overflow-hidden" noPadding>
-                <div className="flex flex-col h-full px-4 pt-3 pb-3">
+            <PanelSection title="Required Infrastructure" className="flex-1 flex flex-col min-h-0 shrink overflow-hidden">
+                <div className="flex flex-col h-full min-h-0">
                     <div className="flex items-center justify-between mb-1.5 shrink-0">
                         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Target Tracking</span>
                         <div className="flex gap-2">
