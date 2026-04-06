@@ -1298,11 +1298,77 @@ function OsmModel({ bounds, refEn }) {
             normals.offset.x += delta * 0.05;
             normals.offset.y += delta * 0.05;
         }
+        
+        const t = useStore.getState().timeOfDay;
+        const w = useStore.getState().weatherClear;
+        const theta = ((t - 6) / 24) * Math.PI * 2;
+        const elevation = Math.sin(theta);
+        const sunIntensity = elevation > 0 ? Math.pow(Math.max(0, elevation), 0.5) * (0.3 + 0.7 * w) : 0;
+        const darkness = 1.0 - Math.min(1.0, sunIntensity * 1.5);
+        if (buildingMaterial.userData?.uniforms) {
+            buildingMaterial.userData.uniforms.uDarkness.value = darkness;
+        }
     });
 
 
     const terrainMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#88cc99", roughness: 0.9, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
-    const buildingMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.3, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
+    const buildingMaterial = useMemo(() => {
+        const mat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.3, flatShading: true, clippingPlanes: clipPlanes });
+        mat.userData.uniforms = { uDarkness: { value: 0.0 } };
+        mat.onBeforeCompile = (shader) => {
+            shader.uniforms.uDarkness = mat.userData.uniforms.uDarkness;
+            shader.vertexShader = shader.vertexShader.replace(
+                '#include <common>',
+                `#include <common>
+                varying vec3 vWorldPos;`
+            );
+            shader.vertexShader = shader.vertexShader.replace(
+                '#include <worldpos_vertex>',
+                `#include <worldpos_vertex>
+#ifdef USE_INSTANCING
+                vWorldPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+#else
+                vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+#endif
+                `
+            );
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <common>',
+                `#include <common>
+                uniform float uDarkness;
+                varying vec3 vWorldPos;
+                float random(vec2 st) {
+                    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+                }`
+            );
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <emissivemap_fragment>',
+                `#include <emissivemap_fragment>
+                vec3 worldNormal = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+                if (abs(worldNormal.y) < 0.5 && uDarkness > 0.01) {
+                    vec2 winUv = abs(worldNormal.z) > 0.5 ? vWorldPos.xy : vWorldPos.zy;
+                    float floorHeight = 4.0;
+                    float windowWidth = 3.0;
+                    vec2 id = vec2(floor(winUv.x / windowWidth), floor(winUv.y / floorHeight));
+                    vec2 extUv = vec2(fract(winUv.x / windowWidth), fract(winUv.y / floorHeight));
+                    
+                    if (extUv.x > 0.2 && extUv.x < 0.8 && extUv.y > 0.3 && extUv.y < 0.8) {
+                        float rnd = random(id + vec2(abs(worldNormal.x), abs(worldNormal.z)));
+                        float threshold = 1.0 - uDarkness * 0.9;
+                        if (rnd > threshold) {
+                            vec3 winColor = mix(vec3(1.0, 0.7, 0.3), vec3(0.9, 0.9, 1.0), random(id + 1.0));
+                            totalEmissiveRadiance += winColor * uDarkness * 3.0; // Use += to preserve existing emissive
+                            diffuseColor.rgb *= 0.1;
+                        } else {
+                            diffuseColor.rgb *= clamp(1.0 - uDarkness, 0.1, 1.0);
+                        }
+                    }
+                }
+                `
+            );
+        };
+        return mat;
+    }, [clipPlanes]);
     const roadMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffd700", emissive: "#ffaa00", emissiveIntensity: 2.0, roughness: 0.2, metalness: 0.8, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
     const sandMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#e6c280", roughness: 1.0, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
     const waterMaterial = useMemo(() => new THREE.MeshStandardMaterial({
