@@ -43,6 +43,22 @@ To utilize the advanced semantic processing features of the Walkability module (
 
 ---
 
+## 🌍 Data Augmentation Configuration (Optional)
+
+To massively supercharge the AI's understanding of urban layouts (especially in regions where OpenStreetMap data is poor), the app supports injecting proprietary Points of Interest (POI) data into the physical space before the AI processes it.
+
+1. **Overture Maps Engine**: Enabled automatically. This runs seamlessly in the background utilizing a specialized Python endpoint to parse global AWS S3 datasets. No API key is required.
+2. **Google Places Context API**: If you want hyper-accurate commercial zoning data:
+   - Navigate to the [Google Cloud Console](https://console.cloud.google.com/) and create a project.
+   - Enable the **Places API** and generate an API Key.
+   - Inside the local application, open the **Settings** menu, enable the Google Places toggle, and paste your key.
+3. **Amap (Gaode) Regional Overlay**: If your mapped region falls within China, OpenStreetMap is often completely empty.
+   - Register at the [Amap Open Platform (Gaode)](https://console.amap.com/dev/key/app) and create a developer profile.
+   - Select **Web Service API** to generate your key.
+   - Paste it into the Amap section in the **Settings** menu. The app will automatically detect if your 3D boundary box is inside China and dynamically trigger this key for regional enrichment.
+
+---
+
 ## 🏛️ Analytical Modules Breakdown
 
 The software operates through two distinct, hyper-accurate simulation pipelines located on the right-hand panel of the interface.
