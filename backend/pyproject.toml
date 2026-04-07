@@ -1,0 +1,24 @@
+[project]
+name = "eddy3d-gan-api"
+version = "2.0.0"
+description = "GAN surrogate model API for urban wind flow prediction"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]==0.115.0",
+    "uvicorn[standard]==0.30.0",
+    "python-multipart==0.0.22",
+    "onnxruntime==1.18.0",
+    "pillow==12.1.1",
+    "numpy==1.26.4",
+    "requests>=2.32.3",
+    "slowapi==0.1.9",
+    "httpx>=0.28.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false

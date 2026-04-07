@@ -1,0 +1,89 @@
+---
+title: Eddy3D GAN API
+emoji: 🌬️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8000
+---
+# Eddy3D GAN Wind Prediction API
+
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/SustainableUrbanSystemsLab/Eddy3D-GAN)
+[![API Status](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fsustainableurbansystemslab-eddy3d-gan.hf.space%2Fhealth&query=%24.status&label=API%20Status&color=success)](https://sustainableurbansystemslab-eddy3d-gan.hf.space/health)
+
+FastAPI service that serves the GAN surrogate model for urban pedestrian-level wind flow prediction.
+
+**Live API Endpoint:** `https://sustainableurbansystemslab-eddy3d-gan.hf.space`
+
+## ONNX Model Hosting
+
+The ONNX model file (`GAN-21-05-2023-23-Generative.onnx`, ~208 MB) is **not included** in this repository. The container downloads it at startup from a URL you provide.
+
+The model is hosted on Hugging Face:
+
+```
+https://huggingface.co/SustainableUrbanSystemsLab/UrbanWind-GAN/resolve/main/GAN-21-05-2023-23-Generative.onnx
+```
+
+`MODEL_URL` defaults to this URL if not provided, but you can override it via environment variable.
+
+### Optional: SHA-256 Integrity Check
+
+Generate a checksum and set `MODEL_SHA256` to verify downloads:
+
+```bash
+shasum -a 256 GAN-21-05-2023-23-Generative.onnx
+```
+
+## Local Development
+
+```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv sync
+
+# Place your model file
+cp /path/to/GAN-21-05-2023-23-Generative.onnx model.onnx
+
+# Run the server
+uv run uvicorn api:app --reload --port 8000
+```
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check (not rate limited) |
+| POST | `/predict` | Image upload → wind speeds JSON + output image (base64) |
+| POST | `/predict_array` | Raw float array → wind speeds JSON + output image (base64) |
+| POST | `/predict_image` | Image upload → output PNG stream (legacy) |
+
+### `/predict_array` (primary endpoint)
+
+Accepts a JSON body with a flat float array of 786,432 values (3 x 512 x 512), channel-first order (R, G, B), normalised to [-1, 1].
+
+```json
+{
+  "data": [0.1, -0.5, ...]
+}
+```
+
+Returns:
+
+```json
+{
+  "wind_speeds": [0.5, 1.2, ...],
+  "image_base64": "iVBORw0KGgo...",
+  "width": 512,
+  "height": 512
+}
+```
+
+## Docker
+
+```bash
+docker build -t eddy3d-gan-api .
+docker run -p 8000:8000 -e MODEL_URL="https://huggingface.co/SustainableUrbanSystemsLab/UrbanWind-GAN/resolve/main/GAN-21-05-2023-23-Generative.onnx" eddy3d-gan-api
+```
