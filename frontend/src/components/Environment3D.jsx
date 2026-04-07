@@ -4,6 +4,7 @@ import { OrbitControls, Html, Line, Sphere, QuadraticBezierLine, Sky } from '@re
 import * as THREE from 'three';
 import { Water } from 'three-stdlib';
 import { buildRoadGraph, computeWalkability } from '../utils/walkabilityGraph';
+import WindOverlay from './WindOverlay';
 
 extend({ Water });
 import { create } from 'zustand';
@@ -39,6 +40,20 @@ export const useStore = create((set) => ({
     setWalkabilityRadiusMeters: (val) => set({ walkabilityRadiusMeters: val }),
     setWalkabilityStats: (stats) => set(state => ({ ...state, ...stats })),
     setShowDiagnostics: (show) => set({ showDiagnostics: show }),
+    
+    windSimActive: false,
+    setWindSimActive: (val) => set({ windSimActive: val }),
+    windSimBounds: { cx: 0, cz: 0, w: 300, d: 300 },
+    setWindSimBounds: (bounds) => set(state => ({ windSimBounds: { ...state.windSimBounds, ...bounds } })),
+    windSimRunning: false,
+    setWindSimRunning: (val) => set({ windSimRunning: val }),
+    windSpeed: 10,
+    setWindSpeed: (val) => set({ windSpeed: val }),
+    windDirection: 180,
+    setWindDirection: (val) => set({ windDirection: val }),
+    windParticleFlow: true,
+    setWindParticleFlow: (val) => set({ windParticleFlow: val }),
+    
     setAllBuildings: (blds) => set({ allBuildings: blds }),
     setSelectedBuildingId: (id) => set({ selectedBuildingId: id }),
     setBuildingEdits: (edits) => set((state) => ({ buildingEdits: typeof edits === 'function' ? edits(state.buildingEdits) : edits })),
@@ -316,7 +331,7 @@ function OsmModel({ bounds, refEn }) {
     const [d, setD] = useState(800);
     const [minH, setMinH] = useState(0);
 
-    const { getEl, buildingEdits, buildingColorMode, solidColor, functionColors, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityReqFuncs, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs } = useStore();
+    const { getEl, buildingEdits, buildingColorMode, solidColor, functionColors, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityReqFuncs, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds } = useStore();
     const buildingMeshRef = useRef(null);
     const [roadGraph, setRoadGraph] = useState(null);
 
@@ -1473,15 +1488,34 @@ function OsmModel({ bounds, refEn }) {
 
                         setWalkabilityAgentPos([lX, lY, agentY]);
                     }
+
+                    if (store.windSimActive && !store.windSimRunning && e.nativeEvent.button === 0 && e.intersections.length > 0) {
+                        e.stopPropagation();
+                        const pt = e.point;
+                        const lX = pt.x + w / 2;
+                        const lY = -(pt.z - d / 2);
+                        store.setWindSimBounds({ cx: lX, cz: lY, w: 300, d: 300 });
+                    }
                 }}
                 onClick={(e) => {
                     useStore.getState().setSelectedBuildingId(null);
                 }}
             >
+                {windSimActive && windSimBounds && !windSimBounds.hide && (
+                    <mesh position={[windSimBounds.cx, minH + 50, -windSimBounds.cz]}>
+                        <boxGeometry args={[windSimBounds.w, 100, windSimBounds.d]} />
+                        <meshBasicMaterial color="#ff00ff" wireframe transparent opacity={0.6} depthWrite={false} />
+                    </mesh>
+                )}
 
                 <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
                 <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
                 <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} netColor={netColor} walkabilityAgentPos={walkabilityAgentPos} radiusMeters={useStore.getState().walkabilityRadiusMeters} />
+                
+                {windSimRunning && (
+                    <WindOverlay bounds={windSimBounds} buildings={bldgs} minH={minH} fullW={w} fullD={d} refEn={refEn} />
+                )}
+
                 <InstancedVoxels 
                     ref={buildingMeshRef}
                     data={buildingData} 
