@@ -1,85 +1,49 @@
 import React, { useState, useEffect } from 'react';
-import { PanelSection, PanelFooter, Button, Slider, Input, Switch, Metric } from '../ui';
-import { Target, Crosshair } from 'lucide-react';
+import { PanelSection, PanelFooter, Button, Slider, Metric } from '../ui';
+import { Target, Crosshair, BrainCircuit, Loader2 } from 'lucide-react';
 import { useStore } from '../components/Environment3D';
 
 export function WalkabilityInfrastructurePanel() {
-    const { functionColors, walkabilityArcs, walkabilityReqFuncs, walkabilityAutoDistribute, setWalkabilityConfig } = useStore();
-
-    const activeFuncsSet = new Set((walkabilityReqFuncs || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
-
-    const handleToggle = (fn) => {
-        const newSet = new Set(activeFuncsSet);
-        if (newSet.has(fn)) newSet.delete(fn);
-        else newSet.add(fn);
-        setWalkabilityConfig({ walkabilityReqFuncs: Array.from(newSet).join(', ') });
-    };
-
-    const handleSelectAll = () => {
-        const allFuncs = Object.keys(functionColors).filter(fn => fn !== 'unknown');
-        const newSet = new Set([...activeFuncsSet, ...allFuncs]);
-        setWalkabilityConfig({ walkabilityReqFuncs: Array.from(newSet).join(', ') });
-    };
-
-    const handleDeselectAll = () => {
-        setWalkabilityConfig({ walkabilityReqFuncs: '' });
-    };
-
-    const handleAddCustom = (e) => {
-        if (e.key === 'Enter' && e.target.value) {
-            const val = e.target.value.toLowerCase().trim();
-            if (val && val !== 'unknown') {
-                const newSet = new Set(activeFuncsSet);
-                newSet.add(val);
-                setWalkabilityConfig({ walkabilityReqFuncs: Array.from(newSet).join(', ') });
-                e.target.value = '';
-            }
+    const { walkabilityArcs, walkabilityAgentPos, timeOfDay } = useStore();
+    
+    // Aggregate unique functions being targeted right now.
+    const activeArcs = walkabilityArcs || [];
+    const uniqueFuncs = [];
+    const seen = new Set();
+    activeArcs.forEach(a => {
+        if (!seen.has(a.name)) {
+            uniqueFuncs.push(a);
+            seen.add(a.name);
         }
-    };
+    });
 
-    const fulfilledColors = new Set((walkabilityArcs || []).map(a => a.color));
+    const isDay = timeOfDay > 6 && timeOfDay < 18;
+    const themeColor = isDay ? '#00f3ff' : '#ffb700'; // Cyberpunk Blue/Gold
+    const glowStyle = { textShadow: `0 0 8px ${themeColor}, 0 0 16px ${themeColor}`, color: '#ffffff' };
 
     return (
-        <div className="flex flex-col h-full">
-            <PanelSection title="Required Infrastructure" className="flex-1 flex flex-col min-h-0 shrink overflow-hidden">
-                <div className="flex flex-col h-full min-h-0">
-                    <div className="flex items-center justify-between mb-1.5 shrink-0">
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Target Tracking</span>
-                        <div className="flex gap-2">
-                            <button onClick={handleSelectAll} className="text-[10px] text-blue-500 hover:text-blue-600 transition-colors">Select All</button>
-                            <button onClick={handleDeselectAll} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">None</button>
-                        </div>
+        <div className="flex flex-col h-full pointer-events-none">
+            <div className="flex-1 flex flex-col min-h-0 shrink overflow-hidden">
+                <div className="flex items-center justify-between mb-4 shrink-0">
+                    <span className="text-sm font-bold uppercase tracking-[0.3em]" style={glowStyle}>Target Tracking</span>
+                    <span className="text-xs font-mono tracking-widest" style={{color: themeColor}}>{uniqueFuncs.length} NODES</span>
+                </div>
+                {walkabilityAgentPos ? (
+                    <div className="flex flex-col gap-3 flex-1 min-h-[50px] overflow-y-auto custom-scrollbar opacity-90">
+                        {uniqueFuncs.length > 0 ? uniqueFuncs.map((arc, i) => (
+                            <div key={i} className="flex items-center gap-3 relative group">
+                                <span className="text-sm font-mono font-bold uppercase tracking-wider" style={{ color: arc.color, textShadow: `0 0 8px ${arc.color}, 0 0 16px ${arc.color}` }}>{arc.name}</span>
+                            </div>
+                        )) : (
+                            <div className="text-xs font-mono" style={{ color: themeColor, opacity: 0.6 }}>NO ACTIVE CONNECTIONS</div>
+                        )}
                     </div>
-                    <div className="flex flex-col gap-1.5 flex-1 min-h-[50px] overflow-y-auto custom-scrollbar border border-slate-200 rounded p-1 mb-2 bg-slate-50">
-                    {Object.entries(functionColors).filter(([fn]) => fn !== 'unknown').map(([fn, color]) => {
-                        const isTargeted = fulfilledColors.has(color);
-                        return (
-                            <label key={fn} className={`flex items-center gap-3 p-1.5 hover:bg-slate-100 rounded cursor-pointer transition-colors ${isTargeted ? 'bg-blue-50 border border-blue-200 shadow-sm' : 'border border-transparent'}`}>
-                                <input 
-                                    type="checkbox" 
-                                    checked={activeFuncsSet.has(fn)}
-                                    onChange={() => handleToggle(fn)}
-                                    className="accent-blue-500 w-3.5 h-3.5"
-                                />
-                                <div className="w-3 h-3 rounded-full shrink-0 shadow-sm border border-black/10" style={{ backgroundColor: color }}></div>
-                                <span className={`text-xs capitalize flex-1 truncate ${isTargeted ? 'font-semibold text-blue-800' : 'text-slate-700'}`}>{fn}</span>
-                            </label>
-                        );
-                    })}
-                    <div className="px-1.5 py-1 mt-1 border-t border-slate-200">
-                        <input 
-                            type="text" 
-                            placeholder="+ Add new function (Press Enter)"
-                            onKeyDown={handleAddCustom}
-                            className="bg-transparent text-xs w-full outline-none text-slate-600 placeholder-slate-400"
-                        />
+                ) : (
+                    <div className="flex flex-1 items-center font-mono tracking-widest" style={{ color: themeColor, opacity: 0.5, textShadow: `0 0 10px ${themeColor}` }}>
+                        DEPLOY AGENT TO SCAN
                     </div>
-                </div>
-                <div className="mt-4 shrink-0">
-                    <Switch checked={walkabilityAutoDistribute} onChange={(v) => setWalkabilityConfig({ walkabilityAutoDistribute: v })} label="Auto-Distribute Missing" description="Deploy generative node assignments if targets lack essential facilities." />
-                </div>
-                </div>
-            </PanelSection>
+                )}
+            </div>
         </div>
     );
 }
@@ -87,8 +51,7 @@ export function WalkabilityInfrastructurePanel() {
 export default function WalkabilityTool({ regionBounds }) {
     const [radius, setRadius] = useState(15);
     const [speed, setSpeed] = useState(4.0);
-
-    const { walkabilityActive, setWalkabilityActive, setWalkabilityRadiusMeters, walkabilityActiveNodes, walkabilityTargetFulfill, walkabilityAvgDist } = useStore();
+    const { walkabilityActive, setWalkabilityActive, setWalkabilityRadiusMeters, walkabilityActiveNodes, walkabilityTargetFulfill, walkabilityAvgDist, aiProcessing, setAiProcessing, setAiProgressText, aiAbortController, setAiAbortController } = useStore();
 
     useEffect(() => {
         const maxDistMeters = (speed * 1000 / 60) * radius;
@@ -103,6 +66,136 @@ export default function WalkabilityTool({ regionBounds }) {
         setWalkabilityActive(!walkabilityActive);
     };
 
+    const handleAIAssignment = async () => {
+        const { allBuildings, aiApiKey, aiModel, masterFunctions, setBuildingEdits, buildingEdits } = useStore.getState();
+        if (!aiApiKey) {
+            alert('Please configure Google Gemini API Key in Settings first.');
+            return;
+        }
+
+        if (aiProcessing) {
+            // If already processing, do not let them start a new one, but we have a Stop button now
+            return;
+        }
+
+        const controller = new AbortController();
+        setAiAbortController(controller);
+        setAiProcessing(true);
+        setAiProgressText('Initializing...');
+        
+        try {
+            // Filter target buildings that need processing. To keep to context limits, process batched.
+            const targetBuildings = allBuildings.filter(b => b.tags && Object.keys(b.tags).length > 0);
+            
+            // Map the functions list into a neat string prompt.
+            const allowedFunctionsStr = masterFunctions.map(f => f.name).join(', ');
+
+            // Formulate chunks of 400 buildings
+            const CHUNK_SIZE = 400;
+            const newEdits = { ...buildingEdits };
+            const chunks = [];
+
+            for (let i = 0; i < targetBuildings.length; i += CHUNK_SIZE) {
+                chunks.push(targetBuildings.slice(i, i + CHUNK_SIZE));
+            }
+
+            const fetchPromises = chunks.map(async (chunk) => {
+                const promptData = chunk.map(b => ({
+                    id: b.id,
+                    tags: b.tags
+                }));
+
+                const prompt = `You are an AI performing urban function analysis. I have ${chunk.length} buildings represented by OpenStreetMap tags.
+Allowed Functions List: [${allowedFunctionsStr}]
+
+For each building, determine the most applicable function(s) EXCLUSIVELY from the Allowed Functions List based on its OSM tags.
+- A building can have multiple functions if it's mixed use.
+- If no tags clearly map to a function on the list, default to "Residential".
+- If the tags indicate a Commercial function, map it specifically to "Local Shop" if it is present in the Allowed Functions List; otherwise use standard semantic deduction to find the closest available option.
+- If opening_hours tag exists, translate them to a range format "HH:mm-HH:mm" (e.g., "08:00-20:00"). If it doesn't exist, omit the openTime property to signify it will use the system default. 
+Return ONLY a valid JSON array of objects representing the mappings. Schema:
+[
+  { "id": "building_id", "functions": [ { "name": "FunctionName", "openTime": "HH:mm-HH:mm" (optional) } ] }
+]
+
+Do not include any english explanations or markdown codeblocks formatting like \`\`\`json. Raw string of JSON.
+Here are the buildings:
+${JSON.stringify(promptData)}`;
+
+                let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${aiApiKey}`;
+                if (aiModel === 'Gemini 2.5 Pro') {
+                    apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${aiApiKey}`;
+                } else if (aiModel === 'Gemini 3.1 Pro') {
+                    apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent?key=${aiApiKey}`;
+                }
+
+                // Call gemini rest api directly
+                const res = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: controller.signal,
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            temperature: 0.1,
+                            responseMimeType: 'application/json'
+                        }
+                    })
+                });
+
+                if (!res.ok) {
+                    const errorJson = await res.json();
+                    throw new Error(errorJson?.error?.message || 'Gemini API Error');
+                }
+
+                const data = await res.json();
+                let outputStr = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!outputStr) throw new Error("Empty response from AI");
+                if (outputStr.startsWith('```json')) outputStr = outputStr.replace(/```json/g, '').replace(/```/g, '').trim();
+
+                return JSON.parse(outputStr);
+            });
+
+            setAiProgressText(`Extracting features from ${targetBuildings.length} active structures using ${aiModel}...`);
+            // Run in parallel
+            const allResults = await Promise.all(fetchPromises);
+
+            allResults.forEach(parsed => {
+                // Map back to buildingEdits
+                parsed.forEach(resItem => {
+                    const mappedFuncs = resItem.functions.map(f => {
+                         const mFn = masterFunctions.find(mf => mf.name === f.name);
+                         return {
+                             name: mFn ? mFn.name : 'Residential',
+                             openTime: f.openTime || (mFn ? mFn.defaultOpeningTime : '-')
+                         };
+                    });
+                    newEdits[resItem.id] = { ...(newEdits[resItem.id] || {}), functions: mappedFuncs };
+                });
+            });
+
+            setBuildingEdits(newEdits);
+            setAiProgressText('');
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.log('AI processing aborted by user');
+            } else {
+                 console.error(err);
+                 alert("AI Analysis Failed: " + err.message);
+            }
+        } finally {
+            setAiProcessing(false);
+            setAiProgressText('');
+            setAiAbortController(null);
+        }
+    };
+
+    const handleStopAI = () => {
+        if (aiAbortController) {
+            aiAbortController.abort();
+        }
+    };
+
     return (
         <>
             <PanelSection title="Isochrone Matrix">
@@ -112,9 +205,25 @@ export default function WalkabilityTool({ regionBounds }) {
                 </div>
             </PanelSection>
 
+            <PanelSection title="AI Parameterization" className="mt-2">
+                <div className="flex flex-col gap-3 text-xs text-slate-500">
+                    <p className="leading-snug">Generate functional assignments natively via semantic inference over the OpenStreetMap tag space.</p>
+                    
+                    {!aiProcessing ? (
+                        <Button variant="secondary" className="w-full py-2.5 justify-center gap-2 border-slate-200" onClick={handleAIAssignment}>
+                            <BrainCircuit size={16} className="text-purple-500" />
+                            Scan & Assign Properties
+                        </Button>
+                    ) : (
+                        <Button onClick={handleStopAI} className="w-full py-2.5 justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border-red-500/30 font-bold border" style={{ boxShadow: '0 0 10px rgba(239,68,68,0.2)' }}>
+                            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                            ABORT SCAN
+                        </Button>
+                    )}
+                </div>
+            </PanelSection>
 
-
-            <PanelSection title="Network Diagnostic" className="flex-1">
+            <PanelSection title="Network Diagnostic" className="flex-1 mt-2">
                 <div className="flex flex-col gap-1">
                     <Metric label="Active Graph Nodes" value={walkabilityActiveNodes || "AWAITING DEPLOY"} />
                     <Metric label="Target Satisfiability" value={walkabilityTargetFulfill || "N/A"} />

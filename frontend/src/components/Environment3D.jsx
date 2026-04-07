@@ -7,16 +7,111 @@ import { buildRoadGraph, computeWalkability } from '../utils/walkabilityGraph';
 import WindOverlay from './WindOverlay';
 
 extend({ Water });
-import { create } from 'zustand';
 
-export const useStore = create((set) => ({
+export function getDefaultFunctions(bData, masterFunctions = []) {
+    if (!bData || !bData.tags) return [];
+    
+    const tags = bData.tags || {};
+    let parsed = 'unknown';
+    
+    ['building', 'amenity', 'shop', 'leisure', 'office'].forEach(key => {
+        const val = tags[key];
+        if (val && val !== 'yes' && val !== 'building' && val !== 'unclassified' && parsed === 'unknown') {
+            parsed = val.toLowerCase();
+        }
+    });
+
+    if (parsed === 'yes') parsed = tags.amenity || 'unknown';
+    if (parsed === 'apartments' || parsed === 'house') parsed = 'residential';
+    if (parsed === 'shop' || parsed === 'supermarket') parsed = 'retail';
+    if (parsed === 'warehouse') parsed = 'industrial';
+    if (parsed === 'commercial') {
+        if (masterFunctions.some(mf => mf.name.toLowerCase() === 'local shop')) {
+            parsed = 'local shop';
+        } else if (masterFunctions.some(mf => mf.name.toLowerCase() === 'retail')) {
+            parsed = 'retail';
+        }
+        // otherwise leave as 'commercial'
+    }
+    if (parsed === 'university' || parsed === 'kindergarten') parsed = 'school';
+    if (parsed === 'doctors') parsed = 'clinic';
+
+    if (parsed !== 'unknown') {
+        const mFn = masterFunctions.find(mf => mf.name.toLowerCase() === parsed);
+        if (mFn) return [{ name: mFn.name, openTime: mFn.defaultOpeningTime }];
+        const caps = parsed.charAt(0).toUpperCase() + parsed.slice(1);
+        return [{ name: caps, openTime: '-' }];
+    }
+    
+    return [];
+}
+
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+export const useStore = create(persist((set) => ({
     currentBounds: null,
     getEl: null,
     selectedBuildingId: null,
     buildingEdits: {},
     buildingColorMode: 'solid',
     solidColor: '#ffffff',
-    functionColors: { residential: '#3b82f6', commercial: '#f97316', industrial: '#64748b', office: '#06b6d4', educational: '#eab308', retail: '#ef4444', clinic: '#10b981', school: '#8b5cf6' },
+    masterFunctions: [
+        { id: 'func_0', name: 'Residential', color: '#3b82f6', defaultOpeningTime: '-', trackable: false },
+        { id: 'func_1', name: 'Commercial', color: '#f97316', defaultOpeningTime: '08:00-18:00', trackable: true },
+        { id: 'func_2', name: 'Industrial', color: '#64748b', defaultOpeningTime: '06:00-16:00', trackable: true },
+        { id: 'func_3', name: 'Office', color: '#06b6d4', defaultOpeningTime: '08:00-18:00', trackable: true },
+        { id: 'func_4', name: 'Educational', color: '#eab308', defaultOpeningTime: '08:00-16:00', trackable: true },
+        { id: 'func_5', name: 'Retail', color: '#ef4444', defaultOpeningTime: '09:00-20:00', trackable: true },
+        { id: 'func_6', name: 'Clinic', color: '#10b981', defaultOpeningTime: '08:00-20:00', trackable: true },
+        { id: 'func_7', name: 'School', color: '#8b5cf6', defaultOpeningTime: '08:00-15:00', trackable: true },
+        { id: 'func_8', name: 'Hotel', color: '#ec4899', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_9', name: 'Toilet', color: '#0ea5e9', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_10', name: 'Parking', color: '#94a3b8', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_11', name: 'Park', color: '#22c55e', defaultOpeningTime: '06:00-22:00', trackable: true },
+        { id: 'func_12', name: 'Pharmacy', color: '#14b8a6', defaultOpeningTime: '08:00-22:00', trackable: true },
+        { id: 'func_13', name: 'Bakery', color: '#d97706', defaultOpeningTime: '06:00-18:00', trackable: true },
+        { id: 'func_14', name: 'Supermarket', color: '#dc2626', defaultOpeningTime: '08:00-22:00', trackable: true },
+        { id: 'func_15', name: 'Bank', color: '#0284c7', defaultOpeningTime: '09:00-17:00', trackable: true },
+        { id: 'func_16', name: 'Gym', color: '#4f46e5', defaultOpeningTime: '06:00-23:00', trackable: true },
+        { id: 'func_17', name: 'Cinema', color: '#a855f7', defaultOpeningTime: '10:00-24:00', trackable: true },
+        { id: 'func_18', name: 'Museum', color: '#c026d3', defaultOpeningTime: '10:00-18:00', trackable: true },
+        { id: 'func_19', name: 'Library', color: '#ea580c', defaultOpeningTime: '09:00-20:00', trackable: true },
+        { id: 'func_20', name: 'Post Office', color: '#2563eb', defaultOpeningTime: '08:00-18:00', trackable: true },
+        { id: 'func_21', name: 'Police', color: '#1d4ed8', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_22', name: 'Fire Station', color: '#be123c', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_23', name: 'Hospital', color: '#e11d48', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_24', name: 'Dentist', color: '#0d9488', defaultOpeningTime: '08:00-18:00', trackable: true },
+        { id: 'func_25', name: 'Cafe', color: '#b45309', defaultOpeningTime: '07:00-20:00', trackable: true },
+        { id: 'func_26', name: 'Restaurant', color: '#be185d', defaultOpeningTime: '11:00-23:00', trackable: true },
+        { id: 'func_27', name: 'Bar', color: '#7e22ce', defaultOpeningTime: '18:00-02:00', trackable: true },
+        { id: 'func_28', name: 'Hairdresser', color: '#db2777', defaultOpeningTime: '09:00-19:00', trackable: true },
+        { id: 'func_29', name: 'Bus Stop', color: '#fbbf24', defaultOpeningTime: '05:00-01:00', trackable: true },
+        { id: 'func_30', name: 'Subway Station', color: '#f59e0b', defaultOpeningTime: '05:00-01:00', trackable: true },
+        { id: 'func_31', name: 'Train Station', color: '#ea580c', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_32', name: 'Bicycle Rental', color: '#65a30d', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_33', name: 'Car Rental', color: '#0891b2', defaultOpeningTime: '08:00-20:00', trackable: true },
+        { id: 'func_34', name: 'EV Charging', color: '#059669', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_35', name: 'Playground', color: '#84cc16', defaultOpeningTime: '08:00-20:00', trackable: true },
+        { id: 'func_36', name: 'Sports Centre', color: '#4338ca', defaultOpeningTime: '06:00-22:00', trackable: true },
+        { id: 'func_37', name: 'Swimming Pool', color: '#0284c7', defaultOpeningTime: '06:00-22:00', trackable: true },
+        { id: 'func_38', name: 'Place of Worship', color: '#9d174d', defaultOpeningTime: '06:00-20:00', trackable: true },
+        { id: 'func_39', name: 'Community Centre', color: '#c026d3', defaultOpeningTime: '09:00-21:00', trackable: true },
+        { id: 'func_40', name: 'Coworking Space', color: '#0ea5e9', defaultOpeningTime: '00:00-24:00', trackable: true },
+        { id: 'func_41', name: 'Laundromat', color: '#38bdf8', defaultOpeningTime: '06:00-23:00', trackable: true },
+        { id: 'func_42', name: 'Kindergarten', color: '#f43f5e', defaultOpeningTime: '07:00-18:00', trackable: true },
+        { id: 'func_43', name: 'Vet', color: '#10b981', defaultOpeningTime: '08:00-20:00', trackable: true },
+        { id: 'func_44', name: 'Public Garden', color: '#16a34a', defaultOpeningTime: '06:00-22:00', trackable: true },
+        { id: 'func_45', name: 'Courthouse', color: '#475569', defaultOpeningTime: '09:00-17:00', trackable: true },
+        { id: 'func_46', name: 'Market', color: '#f59e0b', defaultOpeningTime: '06:00-16:00', trackable: true },
+        { id: 'func_47', name: 'Concert Hall', color: '#9f1239', defaultOpeningTime: '18:00-24:00', trackable: true },
+        { id: 'func_48', name: 'Stadium', color: '#9333ea', defaultOpeningTime: '10:00-23:00', trackable: true },
+        { id: 'func_49', name: 'Theatre', color: '#b91c1c', defaultOpeningTime: '18:00-23:00', trackable: true }
+    ],
+    aiModel: 'Gemini 3.1 Pro',
+    aiApiKey: '',
+    setAiModel: (m) => set({ aiModel: m }),
+    setAiApiKey: (k) => set({ aiApiKey: k }),
     osmStatus: '',
     setOsmStatus: (status) => set({ osmStatus: status }),
     diagnosticInfo: { ways: 0, bldgs: 0, err: '' },
@@ -59,18 +154,36 @@ export const useStore = create((set) => ({
     setBuildingEdits: (edits) => set((state) => ({ buildingEdits: typeof edits === 'function' ? edits(state.buildingEdits) : edits })),
     setBuildingColorMode: (mode) => set({ buildingColorMode: mode }),
     setSolidColor: (c) => set({ solidColor: c }),
-    setFunctionColors: (fn, c) => set(state => ({ functionColors: { ...state.functionColors, [fn]: c } })),
-    setFunctionColorsBatch: (dict) => set(state => ({ functionColors: { ...state.functionColors, ...dict } })),
-    loadSceneConfig: (data) => set({ 
+    setMasterFunctions: (funcs) => set({ masterFunctions: funcs }),
+    loadSceneConfig: (data) => set(state => ({ 
         buildingEdits: data.buildingEdits || {}, 
         buildingColorMode: data.buildingColorMode || 'solid',
         solidColor: data.solidColor || '#ffffff',
-        functionColors: data.functionColors || { residential: '#3b82f6', commercial: '#f97316', industrial: '#64748b', office: '#06b6d4', educational: '#eab308', retail: '#ef4444', clinic: '#10b981', school: '#8b5cf6' }
-    }),
+        masterFunctions: data.masterFunctions || state.masterFunctions,
+        aiModel: data.aiModel || state.aiModel
+    })),
     timeOfDay: 14,
     setTimeOfDay: (val) => set({ timeOfDay: val }),
     weatherClear: 1.0,
-    setWeatherClear: (val) => set({ weatherClear: val })
+    setWeatherClear: (val) => set({ weatherClear: val }),
+
+    aiProcessing: false,
+    setAiProcessing: (val) => set({ aiProcessing: val }),
+    aiProgressText: '',
+    setAiProgressText: (val) => set({ aiProgressText: val }),
+    aiAbortController: null,
+    setAiAbortController: (ac) => set({ aiAbortController: ac })
+}), {
+    name: 'urban-settings-storage',
+    partialize: (state) => ({
+        masterFunctions: state.masterFunctions,
+        aiModel: state.aiModel,
+        aiApiKey: state.aiApiKey,
+        buildingColorMode: state.buildingColorMode,
+        solidColor: state.solidColor,
+        timeOfDay: state.timeOfDay,
+        weatherClear: state.weatherClear
+    })
 }));
 
 const InstancedVoxels = React.forwardRef(({ data, material, count, vGeom, colors, emissives, onClick, onPointerOver, onPointerOut }, forwardedRef) => {
@@ -331,7 +444,7 @@ function OsmModel({ bounds, refEn }) {
     const [d, setD] = useState(800);
     const [minH, setMinH] = useState(0);
 
-    const { getEl, buildingEdits, buildingColorMode, solidColor, functionColors, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityReqFuncs, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds } = useStore();
+    const { getEl, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay } = useStore();
     const buildingMeshRef = useRef(null);
     const [roadGraph, setRoadGraph] = useState(null);
 
@@ -343,7 +456,10 @@ function OsmModel({ bounds, refEn }) {
         if (!roadGraph || !walkabilityAgentPos) return;
         const stats = computeWalkability(roadGraph, walkabilityAgentPos, walkabilityRadiusMeters);
         
-        const reqFns = walkabilityReqFuncs.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        const reqFns = masterFunctions.filter(f => f.trackable).map(f => f.name.toLowerCase());
+        const masterFuncsMap = {};
+        masterFunctions.forEach(f => masterFuncsMap[f.name.toLowerCase()] = f);
+        
         const withinBids = new Set();
         let satisfiability = {};
         reqFns.forEach(fn => satisfiability[fn] = 0);
@@ -351,6 +467,23 @@ function OsmModel({ bounds, refEn }) {
         const editsToApply = { ...buildingEdits };
         let madeEdits = false;
         const newArcs = [];
+        
+        // Helper to check if open
+        const isTimeInRange = (curTime, timeRangeStr) => {
+            if (!timeRangeStr || timeRangeStr === '-') return false;
+            const [start, end] = timeRangeStr.split('-').map(t => {
+                const [h, m] = t.split(':').map(Number);
+                return h + m/60;
+            });
+            if (start === undefined || end === undefined || isNaN(start) || isNaN(end)) return false;
+            if (end < start) {
+                return curTime >= start || curTime <= end;
+            }
+            return curTime >= start && curTime <= end;
+        };
+
+        const activeTargets = new Set();
+        const closestTargets = {};
 
         bldgs.forEach(b => {
             const bx = (b.minX + b.maxX) / 2;
@@ -361,42 +494,47 @@ function OsmModel({ bounds, refEn }) {
                     withinBids.add(b.id);
                     
                     const edit = editsToApply[b.id] || {};
-                    let currFunc = 'unknown';
+                    let funcsArr = edit.functions;
                     
-                    if (edit.func) {
-                        currFunc = edit.func;
-                    } else if (edit.tags || b.tags) {
-                        const tags = { ...(b.tags || {}), ...(edit.tags || {}) };
-                        const fT = tags.building || tags.amenity || 'unknown';
-                        let parsed = fT.toLowerCase();
-                        if (parsed === 'yes') parsed = tags.amenity || 'unknown';
-                        if (parsed === 'apartments' || parsed === 'house') parsed = 'residential';
-                        if (parsed === 'shop' || parsed === 'supermarket') parsed = 'retail';
-                        if (parsed === 'warehouse') parsed = 'industrial';
-                        if (parsed === 'university' || parsed === 'kindergarten') parsed = 'school';
-                        if (parsed === 'doctors') parsed = 'clinic';
-                        currFunc = parsed;
+                    // Fallback to basic inference if not analyzed by agent
+                    if (!funcsArr || !Array.isArray(funcsArr) || funcsArr.length === 0) {
+                        funcsArr = getDefaultFunctions(b, masterFunctions);
+                        // If no generic functions were resolved, give it a baseline residential identity
+                        if (funcsArr.length === 0) funcsArr = [{ name: 'Residential', openTime: '-' }];
                     }
                     
-                    if (satisfiability[currFunc] !== undefined) {
-                        satisfiability[currFunc]++;
-                        if (satisfiability[currFunc] === 1 || walkabilityTargetFulfill === 'N/A') { 
-                            // Only draw an arc to the first one found, or maybe all of them?
-                            // Let's just draw arcs to the first few to avoid visual clutter
-                            if (satisfiability[currFunc] <= 2) {
-                                newArcs.push({
-                                    bid: b.id,
-                                    pos: [bx, minH + 50, -by],
-                                    color: functionColors[currFunc] || '#ff0055'
-                                });
+                    // Map functions that are currently open
+                    funcsArr.forEach(fnObj => {
+                        const mFn = masterFuncsMap[(fnObj.name || '').toLowerCase()];
+                        if (mFn && mFn.trackable && isTimeInRange(timeOfDay, fnObj.openTime)) {
+                            const fnKey = mFn.name.toLowerCase();
+                            satisfiability[fnKey]++;
+                            
+                            // Track only the CLOSEST instance of each function
+                            const distToAgent = Math.hypot(bx - walkabilityAgentPos[0], by - walkabilityAgentPos[1]);
+                            if (!closestTargets[fnKey] || distToAgent < closestTargets[fnKey].dist) {
+                                closestTargets[fnKey] = {
+                                    dist: distToAgent,
+                                    arcData: {
+                                        bid: b.id,
+                                        name: mFn.name,
+                                        pos: [bx, minH + 50, -by],
+                                        color: mFn.color
+                                    }
+                                };
                             }
                         }
-                    }
+                    });
+                    
                     break;
                 }
             }
         });
+
+        // Insert exactly one arc targeting the closest instance per required function
+        Object.values(closestTargets).forEach(ct => newArcs.push(ct.arcData));
         
+        // Auto distribute missing
         if (walkabilityAutoDistribute && reqFns.length > 0) {
             let availableBids = Array.from(withinBids);
             for (let reqFn of reqFns) {
@@ -405,18 +543,25 @@ function OsmModel({ bounds, refEn }) {
                     const bid = availableBids[rndIdx];
                     availableBids.splice(rndIdx, 1);
                     
-                    const assignColor = functionColors[reqFn] || '#ff0055';
-                    editsToApply[bid] = { ...editsToApply[bid], func: reqFn, color: assignColor };
-                    satisfiability[reqFn]++;
-                    madeEdits = true;
-                    
-                    const targetB = bldgs.find(xb => xb.id === bid);
-                    if (targetB) {
-                        newArcs.push({
-                            bid: bid,
-                            pos: [(targetB.minX + targetB.maxX) / 2, minH + 50, -(targetB.minY + targetB.maxY) / 2],
-                            color: assignColor
-                        });
+                    const mFn = masterFuncsMap[reqFn];
+                    if (mFn) {
+                        const curFnArr = editsToApply[bid]?.functions || [];
+                        editsToApply[bid] = { ...editsToApply[bid], functions: [...curFnArr, { name: mFn.name, openTime: mFn.defaultOpeningTime }] };
+                        satisfiability[reqFn]++;
+                        madeEdits = true;
+                        
+                        // Treat as immediately open if we auto-distributed
+                        if (isTimeInRange(timeOfDay, mFn.defaultOpeningTime)) {
+                            const targetB = bldgs.find(xb => xb.id === bid);
+                            if (targetB) {
+                                newArcs.push({
+                                    bid: bid,
+                                    name: mFn.name,
+                                    pos: [(targetB.minX + targetB.maxX) / 2, minH + 50, -(targetB.minY + targetB.maxY) / 2],
+                                    color: mFn.color
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -424,7 +569,7 @@ function OsmModel({ bounds, refEn }) {
         
         if (madeEdits) {
             setBuildingEdits(editsToApply);
-            setBuildingColorMode('property');
+            setBuildingColorMode('function');
         }
 
         let totalRecs = 0;
@@ -442,7 +587,7 @@ function OsmModel({ bounds, refEn }) {
             walkabilityGraphNodes: stats.reachableNodes,
             walkabilityArcs: newArcs
         });
-    }, [walkabilityAgentPos, walkabilityRadiusMeters, roadGraph, walkabilityReqFuncs, walkabilityAutoDistribute]);
+    }, [walkabilityAgentPos, walkabilityRadiusMeters, roadGraph, masterFunctions, walkabilityAutoDistribute, timeOfDay]);
 
     const loadTerrainHeights = async (minLon, minLat, maxLon, maxLat) => {
         const zoom = 14;
@@ -529,6 +674,11 @@ function OsmModel({ bounds, refEn }) {
                     [out:xml][timeout:90];
                     (
                       way["building"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["leisure"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["amenity"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["shop"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["office"](${minLat},${minLon},${maxLat},${maxLon});
+                      way["landuse"](${minLat},${minLon},${maxLat},${maxLon});
                       way["highway"](${minLat},${minLon},${maxLat},${maxLon});
                       way["natural"="coastline"](${minLat},${minLon},${maxLat},${maxLon});
                       way["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
@@ -539,6 +689,9 @@ function OsmModel({ bounds, refEn }) {
                       way["landuse"="basin"](${minLat},${minLon},${maxLat},${maxLon});
                       way["landuse"="reservoir"](${minLat},${minLon},${maxLat},${maxLon});
                       relation["building"](${minLat},${minLon},${maxLat},${maxLon});
+                      relation["leisure"](${minLat},${minLon},${maxLat},${maxLon});
+                      relation["amenity"](${minLat},${minLon},${maxLat},${maxLon});
+                      relation["landuse"](${minLat},${minLon},${maxLat},${maxLon});
                       relation["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
                       relation["natural"="bay"](${minLat},${minLon},${maxLat},${maxLon});
                       relation["waterway"](${minLat},${minLon},${maxLat},${maxLon});
@@ -660,8 +813,11 @@ function OsmModel({ bounds, refEn }) {
                             el.tags?.water === 'basin' || el.tags?.landuse === 'basin' || el.tags?.landuse === 'reservoir' || el.tags?.natural === 'bay' || el.tags?.water === 'sea' || 
                             el.tags?.building === 'reservoir' || el.tags?.building === 'pool' || el.tags?.amenity === 'water' || el.tags?.leisure === 'swimming_pool' || el.tags?.amenity === 'fountain';
 
-                        if (el.tags?.building && !isWater) {
-                            let h = el.tags?.height ? parseFloat(el.tags.height) : (el.tags?.['building:levels'] ? parseInt(el.tags['building:levels']) * 3 : 10);
+                        const isBuilding = el.tags?.building && el.tags.building !== 'no';
+                        const isPOI = isBuilding || el.tags?.leisure || el.tags?.amenity || el.tags?.shop || el.tags?.office || el.tags?.landuse;
+
+                        if (isPOI && !isWater) {
+                            let h = el.tags?.height ? parseFloat(el.tags.height) : (el.tags?.['building:levels'] ? parseInt(el.tags['building:levels']) * 3 : (isBuilding ? 10 : 2));
                             if (isNaN(h) || h <= 0) h = 10;
                             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                             pts.forEach(p => {
@@ -1260,27 +1416,6 @@ function OsmModel({ bounds, refEn }) {
                 shouldUpdateMatrix = true;
             }
 
-            // Figure out active function
-            let activeFunc = meta.func;
-            if (edit.tags) {
-                const fT = edit.tags.building || edit.tags.amenity || activeFunc;
-                let parsed = fT.toLowerCase();
-                if (parsed === 'yes') parsed = edit.tags.amenity || 'unknown';
-                if (parsed === 'apartments' || parsed === 'house') parsed = 'residential';
-                if (parsed === 'shop' || parsed === 'supermarket') parsed = 'retail';
-                if (parsed === 'warehouse') parsed = 'industrial';
-                if (parsed === 'university' || parsed === 'kindergarten') parsed = 'school';
-                if (parsed === 'doctors') parsed = 'clinic';
-                activeFunc = parsed;
-            }
-            
-            // Assign random color if this function doesn't exist yet!
-            if (!functionColors[activeFunc] && (!newColorsDict || !newColorsDict[activeFunc])) {
-                if (!newColorsDict) newColorsDict = {};
-                const hue = Math.floor(Math.random() * 360);
-                newColorsDict[activeFunc] = `hsl(${hue}, 70%, 50%)`;
-            }
-
             let finalColorStr = solidColor;
             
             if (buildingColorMode === 'property') {
@@ -1290,7 +1425,18 @@ function OsmModel({ bounds, refEn }) {
                     finalColorStr = meta.propCol || solidColor;
                 }
             } else if (buildingColorMode === 'function') {
-                finalColorStr = (newColorsDict && newColorsDict[activeFunc]) || functionColors[activeFunc] || '#f1f5f9';
+                let funcsArr = edit.functions;
+                if (!funcsArr || funcsArr.length === 0) {
+                    funcsArr = getDefaultFunctions(meta, masterFunctions);
+                }
+                
+                if (funcsArr && funcsArr.length > 0) {
+                    const primaryFnName = funcsArr[0].name;
+                    const mf = masterFunctions.find(m => m.name === primaryFnName);
+                    finalColorStr = mf ? mf.color : '#f1f5f9';
+                } else {
+                    finalColorStr = '#f1f5f9';
+                }
             }
 
             let isTarget = false;
@@ -1339,11 +1485,7 @@ function OsmModel({ bounds, refEn }) {
         if (shouldUpdateColor) colorAttr.needsUpdate = true;
         if (shouldUpdateEmi && emiAttr) emiAttr.needsUpdate = true;
         
-        if (newColorsDict) {
-            useStore.getState().setFunctionColorsBatch(newColorsDict);
-        }
-
-    }, [buildingInstanceMeta, buildingIdsByInstance, buildingEdits, buildingColorMode, solidColor, functionColors, selectedBuildingId, walkabilityActive, walkabilityArcs]);
+    }, [buildingInstanceMeta, buildingIdsByInstance, buildingEdits, buildingColorMode, solidColor, masterFunctions, selectedBuildingId, walkabilityActive, walkabilityArcs]);
 
 
     const vGeom = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
@@ -1444,7 +1586,6 @@ function OsmModel({ bounds, refEn }) {
     }), [normals, clipPlanes]);
 
     // Compute dynamic aesthetic color for walkability representations
-    const timeOfDay = useStore(state => state.timeOfDay);
     const dayFactor = Math.max(0, Math.min(1, Math.sin(((timeOfDay - 6) / 24) * Math.PI * 2) * 3));
     const netColor = useMemo(() => new THREE.Color('#ff4d00').lerp(new THREE.Color('#0033ff'), dayFactor), [dayFactor]);
 

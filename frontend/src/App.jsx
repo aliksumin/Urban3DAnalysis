@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Environment3D, { useStore } from './components/Environment3D';
+import Environment3D, { useStore, getDefaultFunctions } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
-import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun } from 'lucide-react';
+import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit } from 'lucide-react';
 import WalkabilityTool, { WalkabilityInfrastructurePanel } from './tools/WalkabilityTool';
 import WindTool from './tools/WindTool';
 import { Panel, PanelHeader, PanelSection, Button, Metric, Input } from './ui';
@@ -20,10 +20,16 @@ export default function App() {
   const [isEnvMinimized, setEnvMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, functionColors, setFunctionColors, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText } = useStore();
 
   const selectedBuildingData = selectedBuildingId ? allBuildings.find(b => b.id === selectedBuildingId) : null;
   const currentEdits = selectedBuildingData ? (buildingEdits[selectedBuildingId] || {}) : {};
+
+  const displayedFunctions = currentEdits.functions || (() => {
+      let defaults = getDefaultFunctions(selectedBuildingData, masterFunctions);
+      if (!defaults || defaults.length === 0) return []; // Leave empty as fallback base if no defaults
+      return defaults;
+  })();
 
   useEffect(() => {
     if (selectedBuildingId) {
@@ -64,8 +70,11 @@ export default function App() {
 
   const handleSaveScene = async () => {
     const data = {
-      buildingEdits,
-      buildingColorMode,
+      buildingEdits: useStore.getState().buildingEdits,
+      buildingColorMode: useStore.getState().buildingColorMode,
+      solidColor: useStore.getState().solidColor,
+      masterFunctions: useStore.getState().masterFunctions,
+      aiModel: useStore.getState().aiModel,
       bounds: regionBounds,
       relief: reliefEnabled
     };
@@ -126,6 +135,21 @@ export default function App() {
                 <div className="flex flex-col items-center gap-3">
                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                     <div className="font-mono text-xs text-slate-600 uppercase tracking-widest">{osmStatus}</div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {aiProgressText && (
+        <div className="absolute inset-x-0 top-40 pointer-events-none z-50 flex justify-center">
+            <div className="bg-slate-900/95 backdrop-blur-md px-6 py-4 rounded-xl shadow-[0_0_30px_rgba(168,85,247,0.2)] border border-purple-500/30">
+                <div className="flex flex-col items-center gap-3">
+                    <div className="flex gap-2">
+                         <div className="w-2 h-2 rounded-full bg-purple-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                         <div className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                         <div className="w-2 h-2 rounded-full bg-cyan-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                    <div className="font-mono text-xs text-purple-200 uppercase tracking-widest">{aiProgressText}</div>
                 </div>
             </div>
         </div>
@@ -219,45 +243,71 @@ export default function App() {
 
                   {/* Settings Content Tab */}
                   {(currentTab === 'settings' && !isRightPanelMinimized) && (
-                     <div className="p-5 flex flex-col gap-4 text-xs text-slate-600 flex-1 overflow-y-auto custom-scrollbar bg-white">
-                        <div className="flex flex-col gap-2">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="colorMode" checked={buildingColorMode === 'solid'} onChange={() => setBuildingColorMode('solid')} className="accent-blue-500" />
-                            <span className="font-semibold text-slate-700">Solid Color</span>
-                          </label>
-                          {buildingColorMode === 'solid' && (
-                            <div className="pl-6 flex items-center gap-2">
-                              <input type="color" value={solidColor} onChange={e => setSolidColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer bg-transparent border-0" />
-                              <span className="text-slate-500 font-mono">{solidColor}</span>
-                            </div>
-                          )}
+                     <div className="p-5 flex flex-col gap-6 text-xs text-slate-600 flex-1 overflow-y-auto custom-scrollbar bg-white">
+                        
+                        <div className="flex flex-col gap-3 pb-4 border-b border-slate-100">
+                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><BrainCircuit size={12}/> AI Analysis Configuration</span>
+                           <div className="flex flex-col gap-2">
+                               <label className="text-xs font-medium text-slate-700">Model Selection</label>
+                               <select value={aiModel || 'Gemini 2.5 Flash'} onChange={e => setAiModel(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 outline-none focus:border-blue-500 transition-colors cursor-pointer">
+                                   <option value="Gemini 2.5 Flash">Gemini 2.5 Flash (Fastest)</option>
+                                   <option value="Gemini 2.5 Pro">Gemini 2.5 Pro (Standard)</option>
+                                   <option value="Gemini 3.1 Pro">Gemini 3.1 Pro (High)</option>
+                               </select>
+                           </div>
+                           <div className="flex flex-col gap-2">
+                               <label className="text-xs font-medium text-slate-700">API Key</label>
+                               <input type="password" value={aiApiKey} onChange={e => setAiApiKey(e.target.value)} placeholder="AIzaSy..." className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 outline-none focus:border-blue-500 transition-colors font-mono text-[10px]" />
+                           </div>
                         </div>
 
-                        <div className="flex flex-col gap-2">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="colorMode" checked={buildingColorMode === 'property'} onChange={() => setBuildingColorMode('property')} className="accent-blue-500" />
-                            <span className="font-semibold text-slate-700">Custom Colors</span>
-                          </label>
-                          {buildingColorMode === 'property' && (
-                            <span className="pl-6 block text-[10px] text-slate-400">Select a structure to impose an override</span>
-                          )}
-                        </div>
-
-                        <div className="flex flex-col gap-2">
-                           <label className="flex items-center gap-2 cursor-pointer">
-                             <input type="radio" name="colorMode" checked={buildingColorMode === 'function'} onChange={() => setBuildingColorMode('function')} className="accent-blue-500" />
-                             <span className="font-semibold text-slate-700">Colorize by Function</span>
+                        <div className="flex flex-col gap-2 pb-4 border-b border-slate-100">
+                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Layers size={12}/> Global Color Overrides</span>
+                           <label className="flex items-center gap-2 cursor-pointer mt-1">
+                             <input type="radio" name="colorMode" checked={buildingColorMode === 'solid'} onChange={() => setBuildingColorMode('solid')} className="accent-blue-500" />
+                             <span className="font-medium text-slate-700">Solid Color Extrusion</span>
                            </label>
-                           {buildingColorMode === 'function' && (
-                              <div className="pl-6 mt-1 flex flex-col gap-1.5">
-                                {Object.entries(functionColors).map(([fn, color]) => (
-                                  <div key={fn} className="flex justify-between items-center bg-slate-100/50 p-1.5 rounded">
-                                    <span className="capitalize text-slate-500 w-24">{fn}</span>
-                                    <input type="color" value={color} onChange={e => setFunctionColors(fn, e.target.value)} className="w-5 h-5 rounded cursor-pointer bg-transparent border-0" />
-                                  </div>
-                                ))}
-                              </div>
+                           {buildingColorMode === 'solid' && (
+                             <div className="pl-6 flex items-center gap-2">
+                               <input type="color" value={solidColor} onChange={e => setSolidColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer bg-transparent border-0" />
+                               <span className="text-slate-500 font-mono text-[10px]">{solidColor}</span>
+                             </div>
                            )}
+
+                           <label className="flex items-center gap-2 cursor-pointer mt-1">
+                             <input type="radio" name="colorMode" checked={buildingColorMode === 'property'} onChange={() => setBuildingColorMode('property')} className="accent-blue-500" />
+                             <span className="font-medium text-slate-700">Per-Building Modifications</span>
+                           </label>
+                           
+                           <label className="flex items-center gap-2 cursor-pointer mt-1">
+                             <input type="radio" name="colorMode" checked={buildingColorMode === 'function'} onChange={() => setBuildingColorMode('function')} className="accent-blue-500" />
+                             <span className="font-medium text-slate-700">Colorize by Function</span>
+                           </label>
+                        </div>
+                        
+                        <div className="flex flex-col gap-2">
+                           <div className="flex justify-between items-center">
+                               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Tag size={12}/> Master 15-Min Functions</span>
+                               <button onClick={() => setMasterFunctions([{ id: 'func_'+Date.now(), name: 'New Function', color: '#ff00ff', defaultOpeningTime: '08:00-18:00', trackable: true }, ...masterFunctions])} className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 transition-colors">+ Add</button>
+                           </div>
+                           <div className="flex flex-col gap-1.5 mt-2 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+                               {masterFunctions.map((mFn, i) => (
+                                   <div key={mFn.id} className="flex flex-col gap-2 p-2 bg-slate-50 border border-slate-200 rounded">
+                                       <div className="flex items-center gap-2">
+                                           <input type="color" value={mFn.color} onChange={e => { const nw = [...masterFunctions]; nw[i].color = e.target.value; setMasterFunctions(nw); }} className="w-5 h-5 shrink-0 rounded cursor-pointer bg-transparent border-0" />
+                                           <input type="text" value={mFn.name} onChange={e => { const nw = [...masterFunctions]; nw[i].name = e.target.value; setMasterFunctions(nw); }} className="flex-1 bg-white border border-slate-200 px-1.5 py-0.5 rounded outline-none font-medium text-slate-700" />
+                                           <button className="text-red-400 hover:text-red-600 px-1" onClick={() => { const nw = [...masterFunctions]; nw.splice(i, 1); setMasterFunctions(nw); }}>×</button>
+                                       </div>
+                                       <div className="flex gap-2 items-center pl-7 text-[10px]">
+                                            <input type="text" value={mFn.defaultOpeningTime} onChange={e => { const nw = [...masterFunctions]; nw[i].defaultOpeningTime = e.target.value; setMasterFunctions(nw); }} placeholder="00:00-24:00" className="w-20 bg-white border border-slate-200 px-1 py-0.5 rounded outline-none font-mono text-center" />
+                                            <label className="flex items-center gap-1 cursor-pointer">
+                                                <input type="checkbox" checked={mFn.trackable} onChange={e => { const nw = [...masterFunctions]; nw[i].trackable = e.target.checked; setMasterFunctions(nw); }} className="accent-blue-500" />
+                                                <span className="text-slate-500">Track Arc</span>
+                                            </label>
+                                       </div>
+                                   </div>
+                               ))}
+                           </div>
                         </div>
                      </div>
                   )}
@@ -310,24 +360,58 @@ export default function App() {
                            </div>
                         )}
                         
-                        {selectedBuildingData.tags && Object.keys(selectedBuildingData.tags).length > 0 && (
-                          <div className="flex flex-col gap-2 mt-2 pt-4 border-t border-slate-100">
-                             <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">OSM Metadata</span>
-                             <div className="flex flex-col gap-1.5">
-                                {Object.entries({ ...selectedBuildingData.tags, ...(currentEdits.tags || {}) }).map(([k, v]) => (
-                                   <div key={k} className="flex justify-between items-center text-xs gap-2">
-                                      <span className="font-medium text-slate-400 capitalize w-1/3 truncate" title={k}>{k}</span>
-                                      <input 
-                                         type="text"
-                                         value={v}
-                                         onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], tags: { ...(prev[selectedBuildingId]?.tags || {}), [k]: e.target.value } } }))}
-                                         className="bg-white shadow-sm border border-slate-200 px-2 py-1 flex-1 min-w-0 text-slate-700 outline-none rounded"
-                                      />
+                        <div className="flex flex-col gap-2 mt-2 pt-4 border-t border-slate-100">
+                           <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Functions & Utilization</span>
+                           <div className="flex flex-col gap-1.5">
+                               {displayedFunctions.map((f, i) => (
+                                   <div key={i} className="flex flex-col gap-1 bg-slate-50 p-2 rounded border border-slate-200">
+                                       <div className="flex justify-between items-center text-xs gap-2">
+                                           <select 
+                                               value={f.name}
+                                               onChange={e => {
+                                                   const newF = [...displayedFunctions];
+                                                   newF[i].name = e.target.value;
+                                                   const mFn = masterFunctions.find(mf => mf.name === e.target.value);
+                                                   if (mFn) newF[i].openTime = mFn.defaultOpeningTime;
+                                                   setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
+                                               }}
+                                               className="bg-white shadow-sm border border-slate-200 px-2 py-1 flex-1 min-w-0 text-slate-700 outline-none rounded font-medium"
+                                           >
+                                             {masterFunctions.map(mf => <option key={mf.id} value={mf.name}>{mf.name}</option>)}
+                                             {!masterFunctions.find(mf => mf.name === f.name) && <option value={f.name}>{f.name}</option>}
+                                           </select>
+                                           <button className="text-red-400 hover:text-red-600 bg-white border border-slate-200 rounded w-6 h-6 flex items-center justify-center font-bold" onClick={() => {
+                                                const newF = [...displayedFunctions].filter((_, idx) => idx !== i);
+                                                setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
+                                           }}>×</button>
+                                       </div>
+                                       <div className="flex items-center text-xs gap-2">
+                                            <span className="text-[10px] text-slate-400 w-16 uppercase font-bold tracking-wider">Open Time</span>
+                                            <input 
+                                                type="text"
+                                                value={f.openTime}
+                                                placeholder="HH:mm-HH:mm or -"
+                                                onChange={e => {
+                                                   const newF = [...displayedFunctions];
+                                                   newF[i].openTime = e.target.value;
+                                                   setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
+                                                }}
+                                                className="bg-white shadow-sm border border-slate-200 px-2 py-1 flex-1 min-w-0 text-slate-700 outline-none rounded font-mono text-center tracking-widest text-[10px]"
+                                            />
+                                       </div>
                                    </div>
-                                ))}
-                             </div>
-                          </div>
-                        )}
+                               ))}
+                               <button 
+                                   onClick={() => {
+                                        const newF = [...displayedFunctions, { name: 'Residential', openTime: '-' }];
+                                        setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
+                                   }}
+                                   className="text-xs mt-1 bg-white border border-dashed border-slate-300 text-slate-500 py-2 rounded hover:bg-slate-50 hover:text-blue-500 hover:border-blue-300 transition-colors font-medium flex items-center justify-center gap-2"
+                               >
+                                 <Plus size={14}/> Add Function
+                               </button>
+                           </div>
+                        </div>
                      </div>
                   )}
                 </div>
@@ -336,18 +420,10 @@ export default function App() {
          })()}
       </div>
 
-      {activeTool === 'walkability' && (
+      {activeTool === 'walkability' && !isWalkabilityMinimized && (
          <div className="absolute top-20 left-6 z-10 pointer-events-none w-72">
-            <div className="pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" style={{ overflow: 'hidden', minWidth: '250px', maxHeight: 'calc(100vh - 12rem)', ...getPanelSize('walkability_panel'), resize: isWalkabilityMinimized ? 'none' : 'both', height: isWalkabilityMinimized ? 'auto' : (getPanelSize('walkability_panel').height || '450px') }} onMouseUp={(e) => savePanelSize(e, 'walkability_panel')}>
-               <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-                  <div className="flex items-center gap-2 font-medium text-slate-700 text-xs uppercase tracking-wide">
-                     <Layers size={14} className="text-emerald-500" /> Infrastructure Analysis
-                  </div>
-                  <button className="w-5 h-5 flex items-center justify-center hover:bg-slate-200 rounded text-slate-400 font-bold bg-transparent border-0 cursor-pointer text-[10px]" onClick={() => setWalkabilityMinimized(!isWalkabilityMinimized)}>{isWalkabilityMinimized ? '▼' : '▬'}</button>
-               </div>
-               {!isWalkabilityMinimized && (
-                   <WalkabilityInfrastructurePanel />
-               )}
+            <div className="pointer-events-auto flex flex-col shrink-0" style={{ maxHeight: 'calc(100vh - 12rem)' }}>
+                <WalkabilityInfrastructurePanel />
             </div>
          </div>
       )}
