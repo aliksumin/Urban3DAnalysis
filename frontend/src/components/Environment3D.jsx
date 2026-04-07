@@ -1501,10 +1501,10 @@ function OsmModel({ bounds, refEn }) {
                     useStore.getState().setSelectedBuildingId(null);
                 }}
             >
-                {windSimActive && windSimBounds && !windSimBounds.hide && (
+                {windSimActive && windSimBounds && !windSimRunning && (
                     <mesh position={[windSimBounds.cx, minH + 50, -windSimBounds.cz]}>
                         <boxGeometry args={[windSimBounds.w, 100, windSimBounds.d]} />
-                        <meshBasicMaterial color="#ff00ff" wireframe transparent opacity={0.6} depthWrite={false} />
+                        <meshBasicMaterial color="#3b82f6" transparent opacity={0.3} />
                     </mesh>
                 )}
 

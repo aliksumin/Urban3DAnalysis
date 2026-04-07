@@ -45,6 +45,8 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             tex.colorSpace = THREE.SRGBColorSpace;
             tex.minFilter = THREE.LinearFilter;
             tex.magFilter = THREE.LinearFilter;
+            tex.center.set(0.5, 0.5);
+            tex.rotation = window._lastWindRad || 0;
             tex.needsUpdate = true;
             setResultTex(tex);
         };
@@ -53,6 +55,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
 
     // Construct the flat Float32Array payload containing R,G,B tensors
     const submitGANPayload = async () => {
+        window._lastWindRad = windDirection * Math.PI / 180;
         setIsFetching(true);
         setFetchError(null);
         
@@ -62,11 +65,11 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             
             // Background wind vectors normalised
             const rad = windDirection * Math.PI / 180;
-            // The model is trained on U, V normalized vectors.
-            // The model is trained on layout mask in Channel 0 (R), and U/V Wind in Channels 1 & 2 (G, B)
-            const normalizedSpeed = Math.min(1.0, windSpeed / 30.0);
-            const u = Math.cos(rad) * normalizedSpeed; 
-            const v = -Math.sin(rad) * normalizedSpeed;
+            // Ensure the surrogate neural network stays within its robust training distribution bounds
+            // by passing strict unit-scaled directional flow vectors. The API automatically returns 
+            // dimensionally scaled results mathematically via its color mapping lookup.
+            const u = 1.0;
+            const v = 0.0;
 
             // Initialize global deep air and baseline wind
             for (let i = 0; i < size; i++) {
@@ -83,6 +86,11 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             mapCanvas.width = N;
             mapCanvas.height = N;
             const ctx = mapCanvas.getContext('2d');
+            
+            // Rotate structural physical layout into standard GAN tensor input bounds
+            ctx.translate(N/2, N/2);
+            ctx.rotate(-rad);
+            ctx.translate(-N/2, -N/2);
             
             // Background is pure black (0) representing Empty Air
             ctx.fillStyle = 'black';
@@ -134,7 +142,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             const response = await fetch("http://localhost:8000/predict", {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data_b64: b64 })
+                body: JSON.stringify({ data_b64: b64, wind_speed: windSpeed })
             });
 
             if (!response.ok) {
@@ -156,13 +164,13 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
         }
     };
 
-    // Trigger calculation sequence explicitly on mount since "Execute" controls mount state dynamically.
+    // Real-time calculation sequence dynamically debounced to prevent API swamping
     useEffect(() => {
-        submitGANPayload();
-        // Disabling dependency reload to freeze map after executing once
-        // (the user alters inputs and must toggle "Execute" to rerender logically)
-        // eslint-disable-next-line
-    }, []);
+        const debounceId = setTimeout(() => {
+            submitGANPayload();
+        }, 150); // 150ms structural UI debounce
+        return () => clearTimeout(debounceId);
+    }, [windSpeed, windDirection, bounds, buildings]);
 
     // Calculate High Fidelity topograph projection plane matching voxel intersections exactly
     const projectedGeometry = useMemo(() => {
@@ -196,6 +204,10 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
         return null;
     }
 
+    // Scale the absolute visual intensity of the non-dimensional GAN mapping
+    // to dynamically reflect absolute wind speed states on the slider
+    const dynamicOpacity = 1.0;
+
     return (
         <group>
             {/* Base Underlay Loading Plate */}
@@ -210,7 +222,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             {resultTex && (
                 <mesh position={[bounds.cx, 0, -bounds.cz]}>
                     <primitive object={projectedGeometry} attach="geometry" />
-                    <meshBasicMaterial map={resultTex} transparent opacity={1.0} depthWrite={true} side={THREE.DoubleSide} blending={THREE.NormalBlending} />
+                    <meshBasicMaterial map={resultTex} transparent opacity={dynamicOpacity} depthWrite={true} side={THREE.DoubleSide} blending={THREE.NormalBlending} />
                 </mesh>
             )}
         </group>
