@@ -87,6 +87,106 @@ export default function WalkabilityTool({ regionBounds }) {
             // Filter target buildings that need processing. To keep to context limits, process batched.
             const targetBuildings = allBuildings.filter(b => b.tags && Object.keys(b.tags).length > 0);
             
+            // --- DATA AUGMENTATION INJECTION ---
+            const { googlePlacesKey, amapApiKey, useGooglePlaces, useOvertureMaps } = useStore.getState();
+            if (regionBounds) {
+                const unproject = (lon, lat, minLon, minLat) => {
+                    const R = 6378137;
+                    const x = (lon - minLon) * (Math.PI / 180) * R * Math.cos(lat * Math.PI / 180);
+                    const y = (lat - minLat) * (Math.PI / 180) * R;
+                    return [x, y];
+                };
+
+                const [minLon, minLat, maxLon, maxLat] = regionBounds;
+                const isChina = (maxLon > 73 && minLon < 135 && maxLat > 18 && minLat < 53);
+                const cLon = (minLon + maxLon) / 2;
+                const cLat = (minLat + maxLat) / 2;
+
+                const externalPOIs = [];
+
+                if (useOvertureMaps) {
+                    setAiProgressText('Querying Overture Spatial Engine...');
+                    try {
+                        const ovRes = await fetch('http://localhost:8000/api/overture', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ bbox: regionBounds }), signal: controller.signal
+                        });
+                        if (ovRes.ok) {
+                            const ovData = await ovRes.json();
+                            if (ovData.features) {
+                                ovData.features.forEach(f => {
+                                    if(f.geometry && f.geometry.coordinates) {
+                                        const cats = f.properties?.categories || {};
+                                        const catName = cats.primary || (cats.alternate && cats.alternate[0]) || '';
+                                        const title = f.properties?.names?.primary || '';
+                                        externalPOIs.push({
+                                            lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+                                            name: title, type: `overture: ${catName}`
+                                        });
+                                    }
+                                });
+                            }
+                        }
+                    } catch(e) { console.warn("Overture failed", e); }
+                }
+
+                if (isChina && amapApiKey) {
+                    setAiProgressText('Querying Amap Regional Overlay...');
+                    try {
+                        const plg = `${minLon},${minLat}|${maxLon},${maxLat}`;
+                        const aRes = await fetch('http://localhost:8000/api/amap_places', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ api_key: amapApiKey, polygon: plg }), signal: controller.signal
+                        });
+                        if (aRes.ok) {
+                            const aData = await aRes.json();
+                            if (aData.pois) {
+                                aData.pois.forEach(p => {
+                                    const coords = p.location.split(',');
+                                    externalPOIs.push({
+                                        lon: parseFloat(coords[0]), lat: parseFloat(coords[1]),
+                                        name: p.name, type: `amap: ${p.type}`
+                                    });
+                                });
+                            }
+                        }
+                    } catch(e) { console.warn("Amap failed", e); }
+                }
+
+                if (useGooglePlaces && googlePlacesKey) {
+                    setAiProgressText('Querying Google Places Context...');
+                    try {
+                        const gRes = await fetch('http://localhost:8000/api/google_places', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ api_key: googlePlacesKey, lat: cLat, lng: cLon, radius: 1500 }), signal: controller.signal
+                        });
+                        if (gRes.ok) {
+                            const gData = await gRes.json();
+                            if (gData.results) {
+                                gData.results.forEach(r => {
+                                    externalPOIs.push({
+                                        lon: r.geometry.location.lng, lat: r.geometry.location.lat,
+                                        name: r.name, type: `google: ${(r.types || []).join(',')}`
+                                    });
+                                });
+                            }
+                        }
+                    } catch(e) { console.warn("Google Maps failed", e); }
+                }
+
+                // Inject external POIs into corresponding buildings
+                if (externalPOIs.length > 0) {
+                    setAiProgressText('Fusing geometries...');
+                    externalPOIs.forEach(poi => {
+                        const [lx, lz] = unproject(poi.lon, poi.lat, minLon, minLat);
+                        const bld = targetBuildings.find(b => b.minX <= lx && b.maxX >= lx && b.minY <= lz && b.maxY >= lz);
+                        if (bld) {
+                            bld.tags = { ...bld.tags, external_poi_name: poi.name, external_poi_type: poi.type };
+                        }
+                    });
+                }
+            }
+            
             // Map the functions list into a neat string prompt.
             const allowedFunctionsStr = masterFunctions.map(f => f.name).join(', ');
 
@@ -105,11 +205,12 @@ export default function WalkabilityTool({ regionBounds }) {
                     tags: b.tags
                 }));
 
-                const prompt = `You are an AI performing urban function analysis. I have ${chunk.length} buildings represented by OpenStreetMap tags.
+                const prompt = `You are an AI performing urban function analysis. I have ${chunk.length} buildings represented by OpenStreetMap tags and geographically intersected enterprise POI data (such as Google Places, Amap, or Overture Maps).
 Allowed Functions List: [${allowedFunctionsStr}]
 
-For each building, determine the most applicable function(s) EXCLUSIVELY from the Allowed Functions List based on its OSM tags.
+For each building, determine the most applicable function(s) EXCLUSIVELY from the Allowed Functions List based on its tags.
 - A building can have multiple functions if it's mixed use.
+- IMPORTANT: If a building contains 'external_poi_name' or 'external_poi_type' tags, prioritize interpreting that over standard OSM tags, as it represents highly accurate proprietary data injected from external GIS providers.
 - If no tags clearly map to a function on the list, default to "Residential".
 - If the tags indicate a Commercial function, map it specifically to "Local Shop" if it is present in the Allowed Functions List; otherwise use standard semantic deduction to find the closest available option.
 - If opening_hours tag exists, translate them to a range format "HH:mm-HH:mm" (e.g., "08:00-20:00"). If it doesn't exist, omit the openTime property to signify it will use the system default. 

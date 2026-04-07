@@ -496,3 +496,58 @@ def predict(request: Request, body: PredictRequest):
         "width": 512,
         "height": 512,
     })
+
+# ---------------------------------------------------------------------------
+# Data Augmentation Proxy Endpoints
+# ---------------------------------------------------------------------------
+import subprocess
+import json
+import httpx
+
+class OvertureRequest(BaseModel):
+    bbox: list[float]  # [min_lon, min_lat, max_lon, max_lat]
+
+class GooglePlacesRequest(BaseModel):
+    api_key: str
+    lat: float
+    lng: float
+    radius: int = 1500
+
+class AmapPlacesRequest(BaseModel):
+    api_key: str
+    polygon: str
+
+@app.post("/api/overture")
+@limiter.limit(RATE_LIMIT_REQUESTS + "/" + RATE_LIMIT_WINDOW)
+async def get_overture_places(request: Request, req: OvertureRequest):
+    logger.info(f"Overture requested for {req.bbox}")
+    bStr = f"{req.bbox[0]},{req.bbox[1]},{req.bbox[2]},{req.bbox[3]}"
+    cmd = ["uv", "run", "overturemaps", "download", "--bbox", bStr, "-f", "geojson", "--type", "place"]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode != 0:
+            logger.error(f"Overture error: {res.stderr}")
+            raise HTTPException(status_code=500, detail=res.stderr)
+        
+        data = json.loads(res.stdout)
+        return JSONResponse(data)
+    except Exception as e:
+        logger.error(f"Overture error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/google_places")
+@limiter.limit(RATE_LIMIT_REQUESTS + "/" + RATE_LIMIT_WINDOW)
+async def get_google_places(request: Request, req: GooglePlacesRequest):
+    url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={req.lat},{req.lng}&radius={req.radius}&key={req.api_key}"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url)
+        return JSONResponse(resp.json())
+
+@app.post("/api/amap_places")
+@limiter.limit(RATE_LIMIT_REQUESTS + "/" + RATE_LIMIT_WINDOW)
+async def get_amap_places(request: Request, req: AmapPlacesRequest):
+    # Amap polygon search
+    url = f"https://restapi.amap.com/v3/place/polygon?polygon={req.polygon}&key={req.api_key}&extensions=all&output=json"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url)
+        return JSONResponse(resp.json())

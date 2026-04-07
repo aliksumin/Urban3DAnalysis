@@ -20,7 +20,7 @@ export default function App() {
   const [isEnvMinimized, setEnvMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps } = useStore();
 
   const selectedBuildingData = selectedBuildingId ? allBuildings.find(b => b.id === selectedBuildingId) : null;
   const currentEdits = selectedBuildingData ? (buildingEdits[selectedBuildingId] || {}) : {};
@@ -258,6 +258,36 @@ export default function App() {
                            <div className="flex flex-col gap-2">
                                <label className="text-xs font-medium text-slate-700">API Key</label>
                                <input type="password" value={aiApiKey} onChange={e => setAiApiKey(e.target.value)} placeholder="AIzaSy..." className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 outline-none focus:border-blue-500 transition-colors font-mono text-[10px]" />
+                           </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 pb-4 border-b border-slate-100">
+                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Layers size={12}/> Data Augmentation Providers</span>
+                           
+                           <label className="flex items-center justify-between cursor-pointer mt-1 opacity-70">
+                               <div className="flex flex-col">
+                                   <span className="font-medium text-slate-700">Overture Maps Engine</span>
+                                   <span className="text-[10px] text-slate-400 font-mono">ONNX/DuckDB Base</span>
+                               </div>
+                               <input type="checkbox" checked={useOvertureMaps} onChange={e => setUseOvertureMaps(e.target.checked)} className="accent-blue-500" disabled />
+                           </label>
+
+                           <div className="flex flex-col gap-2 mt-2">
+                               <label className="flex items-center justify-between cursor-pointer">
+                                   <span className="font-medium text-slate-700">Google Places Context API</span>
+                                   <input type="checkbox" checked={useGooglePlaces} onChange={e => setUseGooglePlaces(e.target.checked)} className="accent-blue-500" />
+                               </label>
+                               {useGooglePlaces && (
+                                   <input type="password" value={googlePlacesKey} onChange={e => setGooglePlacesKey(e.target.value)} placeholder="Google Maps Services Key" className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 outline-none focus:border-blue-500 transition-colors font-mono text-[10px]" />
+                               )}
+                           </div>
+
+                           <div className="flex flex-col gap-2 mt-2">
+                               <div className="flex flex-col">
+                                   <span className="font-medium text-slate-700">Amap (Gaode) Regional Overlay</span>
+                                   <span className="text-[10px] text-slate-400 font-mono">Triggers automatically in China Bounding Boxes</span>
+                               </div>
+                               <input type="password" value={amapApiKey} onChange={e => setAmapApiKey(e.target.value)} placeholder="Amap Web Service Key" className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 outline-none focus:border-blue-500 transition-colors font-mono text-[10px]" />
                            </div>
                         </div>
 

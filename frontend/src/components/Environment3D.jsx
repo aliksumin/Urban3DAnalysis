@@ -172,13 +172,26 @@ export const useStore = create(persist((set) => ({
     aiProgressText: '',
     setAiProgressText: (val) => set({ aiProgressText: val }),
     aiAbortController: null,
-    setAiAbortController: (ac) => set({ aiAbortController: ac })
+    setAiAbortController: (ac) => set({ aiAbortController: ac }),
+
+    googlePlacesKey: '',
+    setGooglePlacesKey: (val) => set({ googlePlacesKey: val }),
+    amapApiKey: '',
+    setAmapApiKey: (val) => set({ amapApiKey: val }),
+    useGooglePlaces: false,
+    setUseGooglePlaces: (val) => set({ useGooglePlaces: val }),
+    useOvertureMaps: true,
+    setUseOvertureMaps: (val) => set({ useOvertureMaps: val })
 }), {
     name: 'urban-settings-storage',
     partialize: (state) => ({
         masterFunctions: state.masterFunctions,
         aiModel: state.aiModel,
         aiApiKey: state.aiApiKey,
+        googlePlacesKey: state.googlePlacesKey,
+        amapApiKey: state.amapApiKey,
+        useGooglePlaces: state.useGooglePlaces,
+        useOvertureMaps: state.useOvertureMaps,
         buildingColorMode: state.buildingColorMode,
         solidColor: state.solidColor,
         timeOfDay: state.timeOfDay,
