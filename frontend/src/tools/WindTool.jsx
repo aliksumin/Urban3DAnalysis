@@ -17,7 +17,7 @@ export default function WindTool({ regionBounds }) {
         <>
             <PanelSection>
                 <div className="flex flex-col gap-6">
-                    <Slider label="Base Wind Velocity" min={0} max={30} step={1} value={windSpeed} onChange={setWindSpeed} suffix=" m/s" />
+                    <Slider label="Wind Speed" min={0} max={30} step={1} value={windSpeed} onChange={setWindSpeed} suffix=" m/s" />
                     <Slider label="Wind Direction" min={0} max={360} step={5} value={windDirection} onChange={setWindDirection} suffix="°" />
                     <Slider label="Domain Width" min={100} max={1000} step={50} value={windSimBounds?.w || 300} onChange={(val) => setWindSimBounds({ ...windSimBounds, w: val })} suffix=" m" />
                     <Slider label="Domain Length" min={100} max={1000} step={50} value={windSimBounds?.d || 300} onChange={(val) => setWindSimBounds({ ...windSimBounds, d: val })} suffix=" m" />
