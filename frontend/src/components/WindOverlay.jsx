@@ -45,8 +45,6 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             tex.colorSpace = THREE.SRGBColorSpace;
             tex.minFilter = THREE.LinearFilter;
             tex.magFilter = THREE.LinearFilter;
-            tex.center.set(0.5, 0.5);
-            tex.rotation = window._lastWindRad || 0;
             tex.needsUpdate = true;
             setResultTex(tex);
         };
@@ -55,21 +53,20 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
 
     // Construct the flat Float32Array payload containing R,G,B tensors
     const submitGANPayload = async () => {
-        window._lastWindRad = windDirection * Math.PI / 180;
+        // We calculate and assign the dynamic mathematical rotation tracking inside the try block now
         setIsFetching(true);
         setFetchError(null);
         
         try {
             const size = N * N;
             const floatData = new Float32Array(3 * size);
+            // Background wind vectors normalised. 
+            // Meteorological wind direction implies where wind blows FROM.
+            const windRad = windDirection * Math.PI / 180;
             
-            // Background wind vectors normalised
-            const rad = windDirection * Math.PI / 180;
-            // Ensure the surrogate neural network stays within its robust training distribution bounds
-            // by passing strict unit-scaled directional flow vectors. The API automatically returns 
-            // dimensionally scaled results mathematically via its color mapping lookup.
-            const u = 1.0;
-            const v = 0.0;
+            // Extract native Cartesian flow vectors dynamically (0=North blows South(+V), 90=East blows West(-U))
+            const u = -Math.sin(windRad);
+            const v = Math.cos(windRad);
 
             // Initialize global deep air and baseline wind
             for (let i = 0; i < size; i++) {
@@ -78,7 +75,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
                 floatData[2 * size + i] = v;    // Channel 2 (B): Z-Wind Vector
             }
 
-            // Rasterize bounds exactly using an internal HTML5 Canvas Engine to avoid axis-aligned BBox GAN hallucinations (checkerboard/noise patterns)
+            // Rasterize purely natively directly inside the bounding box. Geometric matrix stays locked tightly!
             const gwX = bounds.cx - worldW / 2;
             const gwZ = bounds.cz - worldD / 2;
 
@@ -87,10 +84,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             mapCanvas.height = N;
             const ctx = mapCanvas.getContext('2d');
             
-            // Rotate structural physical layout into standard GAN tensor input bounds
-            ctx.translate(N/2, N/2);
-            ctx.rotate(-rad);
-            ctx.translate(-N/2, -N/2);
+            // Static orthogonal locking
             
             // Background is pure black (0) representing Empty Air
             ctx.fillStyle = 'black';
@@ -100,6 +94,10 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             ctx.fillStyle = 'white';
             ctx.beginPath();
             buildings.forEach(b => {
+                // Ensure only physical volumetric structures block wind, omitting flat landuse/poi ground plates
+                const isVolumetric = b.tags?.building && b.tags.building !== 'no';
+                if (!isVolumetric) return;
+                
                 b.p.forEach((pt, idx) => {
                     const lX = pt[0];
                     const lY = pt[1];
@@ -179,9 +177,18 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
         geo.rotateX(-Math.PI / 2);
         
         const pos = geo.attributes.position;
+        const uv = geo.attributes.uv;
+        
         for (let i = 0; i < pos.count; i++) {
             const px = pos.getX(i);
             const pz = pos.getZ(i);
+            
+            // Mathematically emulate HTML5 Canvas coordinate structure precisely under static orthogonal setup
+            const unrotU = px / worldW;
+            const unrotV = -pz / worldD; // -pz precisely mirrors the lY = bounds.cz - pz canvas inversion
+            
+            // Lock flawlessly bounded absolute orthogonal output natively
+            uv.setXY(i, unrotU + 0.5, unrotV + 0.5);
             
             // Reconstruct exact global map bounding parameters safely bypassing Canvas relative offsets
             const lX = px + bounds.cx;

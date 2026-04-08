@@ -447,19 +447,12 @@ def predict(request: Request, body: PredictRequest):
 
         def _encode_image():
             # Normalize original baseline GAN extraction scalar array (0.0 to 1.0)
-            norm = (wind_speeds_arr / 15.0).clip(0, 1.0)
+            norm = ((wind_speeds_arr / 15.0) * body.wind_speed / 30.0).clip(0, 1.0)
+            # Apply perceptual Gamma stretch to prevent the low-speed urban wakes from falling into black voids.
+            norm = np.power(norm, 0.55)
             
-            # Use a sculpted asymmetric Gamma stretch to shift the palette relative to absolute speed.
-            if body.wind_speed >= 15.0:
-                # 30m/s -> Expontial push into Red/Orange danger zones for max impact
-                gamma_curve = (15.0 / body.wind_speed) ** 2.0
-            else:
-                # Low wind -> Softer decay prevents map from losing cyan details prematurely
-                # while still perfectly hitting pure Blue at 0.0 m/s
-                gamma_curve = (15.0 / max(0.1, body.wind_speed)) ** 0.8
-                
-            print("WIND_SPEED:", body.wind_speed, "GAMMA:", gamma_curve)
-            scaled_norm = np.power(norm, gamma_curve)
+            # Map this stretch cleanly back across the 256 Turbo Colormap indices
+            scaled_norm = norm
             
             # Map this stretch cleanly back across the 256 Turbo Colormap indices
             indices = (scaled_norm * 255.0).clip(0, 255).astype(np.int32)
