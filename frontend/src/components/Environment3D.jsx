@@ -731,7 +731,7 @@ function OsmModel({ bounds, refEn }) {
                 setOsmStatus('Downloading geometry from Overpass (heavy)...');
                 
                 const query = `
-                    [out:xml][timeout:90];
+                    [out:json][timeout:90];
                     (
                       way["building"](${minLat},${minLon},${maxLat},${maxLon});
                       way["leisure"](${minLat},${minLon},${maxLat},${maxLon});
@@ -788,52 +788,82 @@ function OsmModel({ bounds, refEn }) {
                         }
                         
                     if (!res.ok) throw new Error(`${endpoint} failed: ` + res.status);
-                    let xml = await res.text();
+                    let rawText = await res.text();
                     
-                    if (!xml || xml.trim().length === 0) {
+                    if (!rawText || rawText.trim().length === 0) {
                         endpoint = 'OSM API Fallback';
                         res = await fetch(`https://api.openstreetmap.org/api/0.6/map?bbox=${sMinLon},${sMinLat},${sMaxLon},${sMaxLat}`, { cache: 'no-store' });
                         if (!res.ok) throw new Error('OSM Fallback failed: ' + res.status);
-                        xml = await res.text();
+                        rawText = await res.text();
                     }
 
-                    const xmlStrSample = xml.length + " chars " + (xml.substring(0, 30));
+                    const sample = rawText.length + " chars " + (rawText.substring(0, 30));
                     setDiagnosticInfo({ err: `Endpoint: ${endpoint}` });
-                    setOsmStatus('Parsing XML nodes...');
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(xml, 'text/xml');
+                    setOsmStatus('Parsing geometry data...');
 
                     const nodes = {};
-                    Array.from(doc.getElementsByTagName('node')).forEach(n => {
-                        nodes[n.getAttribute('id')] = {
-                            lon: parseFloat(n.getAttribute('lon')),
-                            lat: parseFloat(n.getAttribute('lat'))
-                        };
-                    });
-
                     const wayMap = {};
-                    Array.from(doc.getElementsByTagName('way')).forEach(way => {
-                        const tags = {};
-                        Array.from(way.getElementsByTagName('tag')).forEach(t => tags[t.getAttribute('k')] = t.getAttribute('v'));
-                        const nds = Array.from(way.getElementsByTagName('nd')).map(nd => nodes[nd.getAttribute('ref')]).filter(Boolean);
-                        if (nds.length > 2) allWays.push({ id: way.getAttribute('id'), tags, geometry: nds });
-                        wayMap[way.getAttribute('id')] = nds;
-                    });
 
-                    Array.from(doc.getElementsByTagName('relation')).forEach(rel => {
-                        const tags = {};
-                        Array.from(rel.getElementsByTagName('tag')).forEach(t => tags[t.getAttribute('k')] = t.getAttribute('v'));
-                        const members = Array.from(rel.getElementsByTagName('member')).map(m => ({
-                            type: m.getAttribute('type'),
-                            ref: m.getAttribute('ref'),
-                            role: m.getAttribute('role') || '',
-                            geometry: m.getAttribute('type') === 'way' ? (wayMap[m.getAttribute('ref')] || null) : null
-                        }));
-                        if (members.some(m => m.geometry)) {
-                            allRelations.push({ id: rel.getAttribute('id'), tags, members });
-                        }
-                    });
-                    setDiagnosticInfo({ ways: allWays.length, xmlHead: xmlStrSample });
+                    if (rawText.trim().startsWith('{')) {
+                        // Fast JSON path
+                        const data = JSON.parse(rawText);
+                        const elements = data.elements || [];
+                        
+                        elements.forEach(el => {
+                            if (el.type === 'node') {
+                                nodes[el.id] = { lon: el.lon, lat: el.lat };
+                            }
+                        });
+
+                        elements.forEach(el => {
+                            if (el.type === 'way') {
+                                const tags = el.tags || {};
+                                const nds = (el.nodes || []).map(ref => nodes[ref]).filter(Boolean);
+                                if (nds.length > 2) allWays.push({ id: el.id, tags, geometry: nds });
+                                wayMap[el.id] = nds;
+                            } else if (el.type === 'relation') {
+                                const tags = el.tags || {};
+                                const members = (el.members || []).map(m => ({
+                                    type: m.type,
+                                    ref: m.ref,
+                                    role: m.role || '',
+                                    geometry: m.type === 'way' ? (wayMap[m.ref] || null) : null
+                                }));
+                                if (members.some(m => m.geometry)) {
+                                    allRelations.push({ id: el.id, tags, members });
+                                }
+                            }
+                        });
+                    } else {
+                        // XML Fallback
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(rawText, 'text/xml');
+                        
+                        Array.from(doc.getElementsByTagName('node')).forEach(n => {
+                            nodes[n.getAttribute('id')] = { lon: parseFloat(n.getAttribute('lon')), lat: parseFloat(n.getAttribute('lat')) };
+                        });
+                        Array.from(doc.getElementsByTagName('way')).forEach(way => {
+                            const tags = {};
+                            Array.from(way.getElementsByTagName('tag')).forEach(t => tags[t.getAttribute('k')] = t.getAttribute('v'));
+                            const nds = Array.from(way.getElementsByTagName('nd')).map(nd => nodes[nd.getAttribute('ref')]).filter(Boolean);
+                            if (nds.length > 2) allWays.push({ id: way.getAttribute('id'), tags, geometry: nds });
+                            wayMap[way.getAttribute('id')] = nds;
+                        });
+                        Array.from(doc.getElementsByTagName('relation')).forEach(rel => {
+                            const tags = {};
+                            Array.from(rel.getElementsByTagName('tag')).forEach(t => tags[t.getAttribute('k')] = t.getAttribute('v'));
+                            const members = Array.from(rel.getElementsByTagName('member')).map(m => ({
+                                type: m.getAttribute('type'),
+                                ref: m.getAttribute('ref'),
+                                role: m.getAttribute('role') || '',
+                                geometry: m.getAttribute('type') === 'way' ? (wayMap[m.getAttribute('ref')] || null) : null
+                            }));
+                            if (members.some(m => m.geometry)) {
+                                allRelations.push({ id: rel.getAttribute('id'), tags, members });
+                            }
+                        });
+                    }
+                    setDiagnosticInfo({ ways: allWays.length, xmlHead: sample });
                 } catch (e) {
                     console.error("Overpass failed", e);
                     setDiagnosticInfo({ err: e.message });
@@ -1222,8 +1252,11 @@ function OsmModel({ bounds, refEn }) {
         if (!bldgs || !water || w === 0 || d === 0) return { terrainData: new Float32Array(0), waterData: new Float32Array(0), buildingData: new Float32Array(0), roadData: new Float32Array(0), sandData: new Float32Array(0), buildingIdsByInstance: [], buildingColors: null, buildingEmissives: null, buildingInstanceMeta: [] };
         const dummy = new THREE.Object3D();
         const cDummy = new THREE.Color();
-        const vSize = Math.max(1, Math.floor(w / 800)); // Optimal high resolution
-        const hSize = Math.max(1, Math.floor(w / 800));
+        const maxDim = Math.max(w, d);
+        // Safely cap maximum grid density to guarantee maxVoxels stays well under O(memory) limits
+        const resolutionCap = Math.max(maxDim / 350, 2.0); 
+        const vSize = resolutionCap; 
+        const hSize = resolutionCap;
         
         const cols = Math.floor(w / vSize) + 1;
         const rows = Math.floor(d / vSize) + 1;
