@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Environment3D, { useStore, getDefaultFunctions } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
-import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit } from 'lucide-react';
+import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2 } from 'lucide-react';
 import WalkabilityTool, { WalkabilityInfrastructurePanel } from './tools/WalkabilityTool';
 import WindTool from './tools/WindTool';
+import { ModelingHUD } from './tools/ModelingTool';
 import { Panel, PanelHeader, PanelSection, Button, Metric, Input } from './ui';
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
   const [activeRightTab, setActiveRightTab] = useState(null);
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [modulesMenuOpen, setModulesMenuOpen] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [isRightPanelMinimized, setRightPanelMinimized] = useState(false);
   const [isWalkabilityMinimized, setWalkabilityMinimized] = useState(false);
@@ -22,7 +24,11 @@ export default function App() {
 
   const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps } = useStore();
 
-  const selectedBuildingData = selectedBuildingId ? allBuildings.find(b => b.id === selectedBuildingId) : null;
+  const selectedBuildingData = selectedBuildingId ? 
+      (allBuildings.find(b => b.id === selectedBuildingId) || 
+       useStore.getState().customBuildings.find(b => b.id === selectedBuildingId) || 
+       useStore.getState().customPOIs.find(b => b.id === selectedBuildingId)) 
+      : null;
   const currentEdits = selectedBuildingData ? (buildingEdits[selectedBuildingId] || {}) : {};
 
   const displayedFunctions = currentEdits.functions || (() => {
@@ -155,7 +161,7 @@ export default function App() {
         </div>
       )}
 
-      {(fileMenuOpen || modulesMenuOpen) && <div className="fixed inset-0 z-10" onClick={() => { setFileMenuOpen(false); setModulesMenuOpen(false); }} />}
+      {(fileMenuOpen || modulesMenuOpen || toolsMenuOpen) && <div className="fixed inset-0 z-10" onClick={() => { setFileMenuOpen(false); setModulesMenuOpen(false); setToolsMenuOpen(false); }} />}
 
       <div className="absolute top-4 left-4 z-20 flex gap-2 pointer-events-auto">
         <div className="relative">
@@ -188,6 +194,19 @@ export default function App() {
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-48 overflow-hidden z-30">
                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('walkability'); setActiveRightTab('analysis'); useStore.getState().setWalkabilityActive(true); useStore.getState().setWindSimActive(false); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Navigation size={14}/>Walkability Network</button>
                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('wind'); setActiveRightTab('analysis'); useStore.getState().setWalkabilityActive(false); useStore.getState().setWindSimActive(true); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Wind size={14}/>Wind Analysis</button>
+             </div>
+           )}
+        </div>
+
+        <div className="relative">
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setToolsMenuOpen(!toolsMenuOpen); setFileMenuOpen(false); setModulesMenuOpen(false); }}>
+              Tools
+           </button>
+           {toolsMenuOpen && (
+             <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-56 overflow-hidden z-30">
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('building'); setToolsMenuOpen(false); }}><Building2 size={14}/>Place Building</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('road'); setToolsMenuOpen(false); }}><Route size={14}/>Draw Road</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('poi'); setToolsMenuOpen(false); }}><MapPin size={14}/>Place Function Node</button>
              </div>
            )}
         </div>
@@ -314,6 +333,22 @@ export default function App() {
                              <span className="font-medium text-slate-700">Colorize by Function</span>
                            </label>
                         </div>
+
+                        <div className="flex flex-col gap-2 pb-4 border-b border-slate-100">
+                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><MapPin size={12}/> Function Icon Rendering</span>
+                           <label className="flex items-center gap-2 cursor-pointer mt-1">
+                             <input type="radio" name="iconMode" checked={useStore.getState().iconDisplayMode === 'none'} onChange={() => useStore.getState().setIconDisplayMode('none')} className="accent-blue-500" />
+                             <span className="font-medium text-slate-700">Hide Icons</span>
+                           </label>
+                           <label className="flex items-center gap-2 cursor-pointer mt-1">
+                             <input type="radio" name="iconMode" checked={useStore.getState().iconDisplayMode === 'connected'} onChange={() => useStore.getState().setIconDisplayMode('connected')} className="accent-blue-500" />
+                             <span className="font-medium text-slate-700">Show Connected by Arcs Only</span>
+                           </label>
+                           <label className="flex items-center gap-2 cursor-pointer mt-1">
+                             <input type="radio" name="iconMode" checked={useStore.getState().iconDisplayMode === 'all'} onChange={() => useStore.getState().setIconDisplayMode('all')} className="accent-blue-500" />
+                             <span className="font-medium text-slate-700">Show for All Buildings</span>
+                           </label>
+                        </div>
                         
                         <div className="flex flex-col gap-2">
                            <div className="flex justify-between items-center">
@@ -352,24 +387,26 @@ export default function App() {
                   {/* Building Information Content Tab */}
                   {(currentTab === 'building' && !isRightPanelMinimized) && (
                      <div className="p-5 flex flex-col gap-5 flex-1 overflow-y-auto custom-scrollbar bg-white">
-                        <div className="flex flex-col gap-2">
-                           <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">HEIGHT OVERRIDE (m)</span>
-                           <div className="flex gap-2 items-center">
-                             <input 
-                               type="range" min="3" max="300" step="1" 
-                               value={currentEdits.height !== undefined ? currentEdits.height : selectedBuildingData.h} 
-                               onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], height: parseFloat(e.target.value) } }))}
-                               className="flex-1 accent-blue-500 cursor-ew-resize h-1"
-                             />
-                             <input 
-                               type="number" min="3" max="300" step="1" 
-                               value={currentEdits.height !== undefined ? currentEdits.height : selectedBuildingData.h} 
-                               onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], height: parseFloat(e.target.value) } }))}
-                               className="text-xs bg-white p-1 rounded font-mono w-14 text-center text-slate-700 shadow-sm border border-slate-300 outline-none focus:border-blue-500"
-                             />
-                           </div>
-                        </div>
-                        {buildingColorMode === 'property' && (
+                        {!selectedBuildingData.isPOI && (
+                            <div className="flex flex-col gap-2">
+                               <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">HEIGHT OVERRIDE (m)</span>
+                               <div className="flex gap-2 items-center">
+                                 <input 
+                                   type="range" min="3" max="300" step="1" 
+                                   value={currentEdits.height !== undefined ? currentEdits.height : (selectedBuildingData.h || selectedBuildingData.height || 10)} 
+                                   onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], height: parseFloat(e.target.value) } }))}
+                                   className="flex-1 accent-blue-500 cursor-ew-resize h-1"
+                                 />
+                                 <input 
+                                   type="number" min="3" max="300" step="1" 
+                                   value={currentEdits.height !== undefined ? currentEdits.height : (selectedBuildingData.h || selectedBuildingData.height || 10)} 
+                                   onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], height: parseFloat(e.target.value) } }))}
+                                   className="text-xs bg-white p-1 rounded font-mono w-14 text-center text-slate-700 shadow-sm border border-slate-300 outline-none focus:border-blue-500"
+                                 />
+                               </div>
+                            </div>
+                        )}
+                        {!selectedBuildingData.isPOI && buildingColorMode === 'property' && (
                            <div className="flex flex-col gap-2">
                               <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">COLOR OVERRIDE</span>
                               <div className="flex gap-2 items-center">
@@ -407,7 +444,7 @@ export default function App() {
                                                }}
                                                className="bg-white shadow-sm border border-slate-200 px-2 py-1 flex-1 min-w-0 text-slate-700 outline-none rounded font-medium"
                                            >
-                                             {masterFunctions.map(mf => <option key={mf.id} value={mf.name}>{mf.name}</option>)}
+                                             {[...masterFunctions].sort((a,b) => a.name.localeCompare(b.name)).map(mf => <option key={mf.id} value={mf.name}>{mf.name}</option>)}
                                              {!masterFunctions.find(mf => mf.name === f.name) && <option value={f.name}>{f.name}</option>}
                                            </select>
                                            <button className="text-red-400 hover:text-red-600 bg-white border border-slate-200 rounded w-6 h-6 flex items-center justify-center font-bold" onClick={() => {
@@ -441,6 +478,19 @@ export default function App() {
                                  <Plus size={14}/> Add Function
                                </button>
                            </div>
+                        </div>
+
+                        <div className="mt-4 pt-4 border-t border-slate-100 flex justify-center">
+                            <button 
+                                onClick={() => {
+                                    useStore.getState().setDeletedBuildingIds([...useStore.getState().deletedBuildingIds, selectedBuildingId]);
+                                    setSelectedBuildingId(null);
+                                    setActiveRightTab(null);
+                                }}
+                                className="flex items-center gap-2 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-md transition-colors text-xs font-bold w-full justify-center"
+                            >
+                                <Trash2 size={16}/> Delete Object
+                            </button>
                         </div>
                      </div>
                   )}
@@ -486,6 +536,7 @@ export default function App() {
             )}
          </div>
       </div>
+      <ModelingHUD />
 
       <MapSelectorModal
         isOpen={isMapModalOpen}

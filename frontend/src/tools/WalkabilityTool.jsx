@@ -67,7 +67,7 @@ export default function WalkabilityTool({ regionBounds }) {
     };
 
     const handleAIAssignment = async () => {
-        const { allBuildings, aiApiKey, aiModel, masterFunctions, setBuildingEdits, buildingEdits } = useStore.getState();
+        const { allBuildings, customBuildings, customPOIs, aiApiKey, aiModel, masterFunctions, setBuildingEdits, buildingEdits } = useStore.getState();
         if (!aiApiKey) {
             alert('Please configure Google Gemini API Key in Settings first.');
             return;
@@ -85,7 +85,8 @@ export default function WalkabilityTool({ regionBounds }) {
         
         try {
             // Filter target buildings that need processing. To keep to context limits, process batched.
-            const targetBuildings = allBuildings.filter(b => b.tags && Object.keys(b.tags).length > 0);
+            const combinedBuildings = [...allBuildings, ...(customBuildings || []), ...(customPOIs || [])];
+            const targetBuildings = combinedBuildings.filter(b => b.tags && Object.keys(b.tags).length > 0);
             
             // --- DATA AUGMENTATION INJECTION ---
             const { googlePlacesKey, amapApiKey, useGooglePlaces, useOvertureMaps } = useStore.getState();

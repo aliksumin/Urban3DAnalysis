@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Canvas, useFrame, extend } from '@react-three/fiber';
-import { OrbitControls, Html, Line, Sphere, QuadraticBezierLine, Sky } from '@react-three/drei';
+import { Canvas, useFrame, extend, useLoader } from '@react-three/fiber';
+import { OrbitControls, Html, Line, Sphere, QuadraticBezierLine, Sky, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { Water } from 'three-stdlib';
+import { 
+    Home, Store, Factory, Briefcase, GraduationCap, ShoppingCart, Cross, School, 
+    Hotel, Bath, CircleParking, TreePine, Pill, Croissant, ShoppingBasket, Landmark, 
+    Dumbbell, Film, Building2, Library, Mail, ShieldAlert, Flame, Hospital, 
+    Stethoscope, Coffee, Utensils, Wine, Scissors, Bus, Train, Bike, Car, Zap, 
+    Palmtree, Trophy, Waves, Church, Users, Laptop, WashingMachine, Baby, Dog, 
+    Leaf, Scale, Music, SquarePlay, Theater, HelpCircle
+} from 'lucide-react';
 import { buildRoadGraph, computeWalkability } from '../utils/walkabilityGraph';
 import WindOverlay from './WindOverlay';
-
+import { ModelingLayer } from '../tools/ModelingTool';
 extend({ Water });
 
 export function getDefaultFunctions(bData, masterFunctions = []) {
@@ -14,6 +22,11 @@ export function getDefaultFunctions(bData, masterFunctions = []) {
     const tags = bData.tags || {};
     let parsed = 'unknown';
     
+    if (tags.function) {
+        // Special override for custom POIs
+        return [{ name: tags.function, defaultOpeningTime: '00:00-24:00' }];
+    }
+
     ['building', 'amenity', 'shop', 'leisure', 'office'].forEach(key => {
         const val = tags[key];
         if (val && val !== 'yes' && val !== 'building' && val !== 'unclassified' && parsed === 'unknown') {
@@ -116,6 +129,9 @@ export const useStore = create(persist((set) => ({
     setOsmStatus: (status) => set({ osmStatus: status }),
     diagnosticInfo: { ways: 0, bldgs: 0, err: '' },
     setDiagnosticInfo: (info) => set(state => ({ diagnosticInfo: { ...state.diagnosticInfo, ...info } })),
+    cityW: 800,
+    cityD: 800,
+    setCityDimensions: (w, d) => set({ cityW: w, cityD: d }),
     allBuildings: [],
     showDiagnostics: false,
     walkabilityActive: false,
@@ -181,7 +197,24 @@ export const useStore = create(persist((set) => ({
     useGooglePlaces: false,
     setUseGooglePlaces: (val) => set({ useGooglePlaces: val }),
     useOvertureMaps: true,
-    setUseOvertureMaps: (val) => set({ useOvertureMaps: val })
+    setUseOvertureMaps: (val) => set({ useOvertureMaps: val }),
+
+    customBuildings: [],
+    setCustomBuildings: (val) => set({ customBuildings: val }),
+    customRoads: [],
+    setCustomRoads: (val) => set({ customRoads: val }),
+    customPOIs: [],
+    setCustomPOIs: (val) => set({ customPOIs: val }),
+    activeModelingTool: null,
+    setActiveModelingTool: (val) => set({ activeModelingTool: val }),
+    drawTempPoints: [],
+    setDrawTempPoints: (val) => set({ drawTempPoints: val }),
+    draggedPOIId: null,
+    setDraggedPOIId: (val) => set({ draggedPOIId: val }),
+    iconDisplayMode: 'connected',
+    setIconDisplayMode: (val) => set({ iconDisplayMode: val }),
+    deletedBuildingIds: [],
+    setDeletedBuildingIds: (val) => set({ deletedBuildingIds: val })
 }), {
     name: 'urban-settings-storage',
     partialize: (state) => ({
@@ -195,7 +228,12 @@ export const useStore = create(persist((set) => ({
         buildingColorMode: state.buildingColorMode,
         solidColor: state.solidColor,
         timeOfDay: state.timeOfDay,
-        weatherClear: state.weatherClear
+        weatherClear: state.weatherClear,
+        customBuildings: state.customBuildings,
+        customRoads: state.customRoads,
+        customPOIs: state.customPOIs,
+        iconDisplayMode: state.iconDisplayMode,
+        deletedBuildingIds: state.deletedBuildingIds
     })
 }));
 
@@ -457,13 +495,18 @@ function OsmModel({ bounds, refEn }) {
     const [d, setD] = useState(800);
     const [minH, setMinH] = useState(0);
 
-    const { getEl, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay } = useStore();
+    const { getEl, customBuildings, customRoads, deletedBuildingIds, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay } = useStore();
     const buildingMeshRef = useRef(null);
     const [roadGraph, setRoadGraph] = useState(null);
 
     useEffect(() => {
-        if (hwys.length > 0) setRoadGraph(buildRoadGraph(hwys, getEl));
-    }, [hwys, getEl]);
+        const allHwys = [...hwys];
+        customRoads.forEach(cr => {
+            // Provide ls matching p so getEl falls back properly
+            allHwys.push({ id: cr.id, p: cr.points, ls: cr.points });
+        });
+        if (allHwys.length > 0) setRoadGraph(buildRoadGraph(allHwys, getEl));
+    }, [hwys, getEl, customRoads]);
 
     useEffect(() => {
         if (!roadGraph || !walkabilityAgentPos) return;
@@ -498,9 +541,12 @@ function OsmModel({ bounds, refEn }) {
         const activeTargets = new Set();
         const closestTargets = {};
 
-        bldgs.forEach(b => {
-            const bx = (b.minX + b.maxX) / 2;
-            const by = (b.minY + b.maxY) / 2;
+        const { customPOIs } = useStore.getState();
+        const evalBldgs = [...bldgs, ...customBuildings, ...(customPOIs || [])].filter(b => !deletedBuildingIds.includes(b.id));
+
+        evalBldgs.forEach(b => {
+            const bx = b.x !== undefined ? b.x : (b.minX + b.maxX) / 2;
+            const by = b.z !== undefined ? b.z : (b.minY + b.maxY) / 2;
             
             for (let node of stats.reachableNodes) {
                 if (Math.hypot(bx - node.x, by - node.y) < 100) {
@@ -600,7 +646,7 @@ function OsmModel({ bounds, refEn }) {
             walkabilityGraphNodes: stats.reachableNodes,
             walkabilityArcs: newArcs
         });
-    }, [walkabilityAgentPos, walkabilityRadiusMeters, roadGraph, masterFunctions, walkabilityAutoDistribute, timeOfDay]);
+    }, [walkabilityAgentPos, walkabilityRadiusMeters, roadGraph, masterFunctions, walkabilityAutoDistribute, timeOfDay, bldgs, customBuildings, buildingEdits, deletedBuildingIds]);
 
     const loadTerrainHeights = async (minLon, minLat, maxLon, maxLat) => {
         const zoom = 14;
@@ -668,6 +714,7 @@ function OsmModel({ bounds, refEn }) {
 
         const ext = unproject(Math.max(bounds[0], bounds[2]), Math.max(bounds[1], bounds[3]), Math.min(bounds[0], bounds[2]), Math.min(bounds[1], bounds[3]));
         setW(ext[0]); setD(ext[1]);
+        useStore.getState().setCityDimensions(ext[0], ext[1]);
 
         const b = `${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
@@ -1241,9 +1288,38 @@ function OsmModel({ bounds, refEn }) {
             }
         };
 
+        // Convert and append customBuildings
+        const allBldgs = bldgs.filter(b => !deletedBuildingIds.includes(b.id));
+        customBuildings.forEach(cb => {
+            if (deletedBuildingIds.includes(cb.id)) return;
+            allBldgs.push({
+                id: cb.id,
+                p: cb.points,
+                ls: cb.points,
+                h: cb.height,
+                minX: cb.minX, maxX: cb.maxX, minY: cb.minY, maxY: cb.maxY,
+                tags: cb.tags,
+                isCustom: true
+            });
+        });
+
+        const allHwys = [...hwys];
+        customRoads.forEach(cr => {
+            const minX = Math.min(...cr.points.map(p => p[0]));
+            const maxX = Math.max(...cr.points.map(p => p[0]));
+            const minY = Math.min(...cr.points.map(p => p[1]));
+            const maxY = Math.max(...cr.points.map(p => p[1]));
+            allHwys.push({
+                id: cr.id,
+                p: cr.points,
+                minX, maxX, minY, maxY,
+                isCustom: true
+            });
+        });
+
         water.forEach(w => addToGrid(w, watrGrid));
-        bldgs.forEach(b => addToGrid(b, bldgsGrid));
-        hwys.forEach(h => addToGrid(h, hwysGrid));
+        allBldgs.forEach(b => addToGrid(b, bldgsGrid));
+        allHwys.forEach(h => addToGrid(h, hwysGrid));
         sand.forEach(s => addToGrid(s, sandGrid));
 
         for (let x = 0; x <= w; x += vSize) {
@@ -1393,7 +1469,7 @@ function OsmModel({ bounds, refEn }) {
             buildingEmissives: bEmi.slice(0, bcIdx),
             buildingInstanceMeta: bMeta
         };
-    }, [w, d, bldgs, water, sand, hwys, minH, refEn, getEl]);
+    }, [w, d, bldgs, water, sand, hwys, minH, refEn, getEl, customBuildings, customRoads]);
 
     useEffect(() => {
         if (!buildingMeshRef.current || !buildingInstanceMeta || !buildingIdsByInstance) return;
@@ -1422,6 +1498,10 @@ function OsmModel({ bounds, refEn }) {
             let bhY = meta.topY + Math.floor(activeHeight / meta.hSize) * meta.hSize;
             let bH = Math.max(0, bhY - (meta.topY + meta.hSize) + meta.hSize);
             let bP_y = (meta.topY + meta.hSize) + bH / 2 - meta.hSize / 2;
+
+            if (deletedBuildingIds.includes(meta.bid)) {
+                bH = 0;
+            }
 
             if (matrixArray[i * 16 + 5] !== bH || matrixArray[i * 16 + 13] !== bP_y) {
                 matrixArray[i * 16 + 5] = bH;
@@ -1498,7 +1578,7 @@ function OsmModel({ bounds, refEn }) {
         if (shouldUpdateColor) colorAttr.needsUpdate = true;
         if (shouldUpdateEmi && emiAttr) emiAttr.needsUpdate = true;
         
-    }, [buildingInstanceMeta, buildingIdsByInstance, buildingEdits, buildingColorMode, solidColor, masterFunctions, selectedBuildingId, walkabilityActive, walkabilityArcs]);
+    }, [buildingInstanceMeta, buildingIdsByInstance, buildingEdits, buildingColorMode, solidColor, masterFunctions, selectedBuildingId, walkabilityActive, walkabilityArcs, deletedBuildingIds]);
 
 
     const vGeom = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
@@ -1792,6 +1872,78 @@ function DynamicLighting() {
     );
 }
 
+function IconOverlay() {
+    const { iconDisplayMode, allBuildings, customBuildings, customPOIs, buildingEdits, masterFunctions, walkabilityArcs, cityW, cityD, deletedBuildingIds } = useStore();
+    
+    const iconMap = useMemo(() => ({
+        'residential': Home, 'commercial': Store, 'industrial': Factory, 'office': Briefcase, 
+        'educational': GraduationCap, 'retail': ShoppingCart, 'clinic': Cross, 'school': School, 
+        'hotel': Hotel, 'park': TreePine, 'parking': CircleParking, 'toilet': Bath,
+        'pharmacy': Pill, 'bakery': Croissant, 'supermarket': ShoppingBasket, 'bank': Landmark,
+        'gym': Dumbbell, 'cinema': Film, 'museum': Building2, 'library': Library,
+        'post office': Mail, 'police': ShieldAlert, 'fire station': Flame, 'hospital': Hospital,
+        'dentist': Stethoscope, 'cafe': Coffee, 'restaurant': Utensils, 'bar': Wine,
+        'hairdresser': Scissors, 'bus stop': Bus, 'subway station': Train, 'train station': Train,
+        'bicycle rental': Bike, 'car rental': Car, 'ev charging': Zap, 'playground': Palmtree,
+        'sports centre': Trophy, 'swimming pool': Waves, 'place of worship': Church,
+        'community centre': Users, 'coworking space': Laptop, 'laundromat': WashingMachine,
+        'kindergarten': Baby, 'vet': Dog, 'public garden': Leaf, 'courthouse': Scale,
+        'market': Store, 'concert hall': Music, 'stadium': SquarePlay, 'theatre': Theater
+    }), []);
+
+    if (iconDisplayMode === 'none') return null;
+    const combinedList = [...(allBuildings||[]), ...(customBuildings||[]), ...(customPOIs||[])].filter(b => !deletedBuildingIds.includes(b.id));
+    const iconsToRender = [];
+    const connectedBids = new Set(walkabilityArcs.map(a => a.bid));
+
+    combinedList.forEach(b => {
+        if (iconDisplayMode === 'connected' && !connectedBids.has(b.id)) return;
+        
+        let buildingFns = buildingEdits[b.id]?.functions;
+        if (!buildingFns || buildingFns.length === 0) {
+            buildingFns = getDefaultFunctions(b, masterFunctions);
+        }
+
+        if (buildingFns && buildingFns.length > 0) {
+            let primaryFn = buildingFns[0].name.toLowerCase();
+            if (!iconMap[primaryFn]) primaryFn = 'retail';
+            
+            let mFn = masterFunctions.find(mf => mf.name.toLowerCase() === primaryFn);
+            let pColor = mFn ? mFn.color : '#3b82f6';
+
+            let posX = b.x || (b.minX + b.maxX)/2;
+            let posZ = b.z || (b.minY + b.maxY)/2;
+            let posY = b.y !== undefined ? b.y + 2 : ((b.height || b.h || 0) + (b.isPOI ? 2 : 15));
+
+            const IconComponent = iconMap[primaryFn] || HelpCircle;
+            iconsToRender.push(
+                <Html key={b.id} position={[posX, posY, -posZ]} center zIndexRange={[100, 0]}>
+                    <div 
+                        className="relative flex flex-col items-center justify-end w-14 h-16 drop-shadow-xl opacity-95 transition-transform hover:scale-110 cursor-pointer pointer-events-auto"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            useStore.getState().setSelectedBuildingId(b.id);
+                        }}
+                    >
+                        <svg viewBox="0 0 24 24" className="w-[52px] h-[52px]" style={{ color: pColor }} fill="currentColor" stroke="white" strokeWidth="1.5">
+                            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+                        </svg>
+                        <div 
+                            className="absolute top-[20px] left-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-none text-white drop-shadow-sm" 
+                        >
+                            <IconComponent size={22} strokeWidth={2.5} />
+                        </div>
+                    </div>
+                </Html>
+            );
+
+            // Hidden hit mesh removed as drag-to-move is disabled and Html handles clicking.
+        }
+    });
+
+    return <group position={[-cityW / 2, 0, cityD / 2]}>{iconsToRender}</group>;
+}
+
 export default function Environment3D({ regionBounds, reliefEnabled }) {
     return (
         <Canvas 
@@ -1801,9 +1953,10 @@ export default function Environment3D({ regionBounds, reliefEnabled }) {
             shadows
         >
             <DynamicLighting />
-
-            {regionBounds ? <OsmModel bounds={regionBounds} refEn={reliefEnabled} /> : <PlatformBase w={800} d={800} refEn={false} minH={0} />}
-
+            <ModelingLayer regionBounds={regionBounds}>
+                {regionBounds ? <OsmModel bounds={regionBounds} refEn={reliefEnabled} /> : <PlatformBase w={800} d={800} refEn={false} minH={0} />}
+                <IconOverlay />
+            </ModelingLayer>
             <OrbitControls makeDefault maxPolarAngle={Math.PI / 2 - 0.05} />
         </Canvas>
     );
