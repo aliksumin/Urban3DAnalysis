@@ -188,6 +188,8 @@ export const useStore = create(persist((set) => ({
     })),
     timeOfDay: 14,
     setTimeOfDay: (val) => set({ timeOfDay: val }),
+    dayOfYear: 80,
+    setDayOfYear: (val) => set({ dayOfYear: val }),
     weatherClear: 1.0,
     setWeatherClear: (val) => set({ weatherClear: val }),
 
@@ -1696,9 +1698,14 @@ function OsmModel({ bounds, refEn }) {
         
         const t = useStore.getState().timeOfDay;
         const w = useStore.getState().weatherClear;
-        const theta = ((t - 6) / 24) * Math.PI * 2;
-        const elevation = Math.sin(theta);
-        const sunIntensity = elevation > 0 ? Math.pow(Math.max(0, elevation), 0.5) * (0.3 + 0.7 * w) : 0;
+        const dayOfYear = useStore.getState().dayOfYear || 80;
+        const bounds = useStore.getState().currentBounds;
+        const lat = bounds ? ((bounds[1] + bounds[3]) / 2) * Math.PI / 180 : 0;
+        const decl = 23.44 * Math.PI / 180 * Math.sin(2 * Math.PI / 365 * (dayOfYear - 81));
+        const hAngle = (t - 12) * 15 * Math.PI / 180;
+        const sinElevation = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hAngle);
+        const elevation = Math.asin(sinElevation);
+        const sunIntensity = elevation > 0 ? Math.pow(Math.max(0, Math.sin(elevation)), 0.5) * (0.3 + 0.7 * w) : 0;
         const darkness = 1.0 - Math.min(1.0, sunIntensity * 1.5);
         if (buildingMaterial.userData?.uniforms) {
             buildingMaterial.userData.uniforms.uDarkness.value = darkness;
@@ -1967,21 +1974,36 @@ function OsmModel({ bounds, refEn }) {
 }
 function DynamicLighting() {
     const timeOfDay = useStore(state => state.timeOfDay);
+    const dayOfYear = useStore(state => state.dayOfYear) || 80;
     const weatherClear = useStore(state => state.weatherClear);
+    const bounds = useStore(state => state.currentBounds);
 
-    const theta = ((timeOfDay - 6) / 24) * Math.PI * 2;
-    const elevation = Math.sin(theta);
-    const azimuth = Math.cos(theta);
-    
+    const lat = bounds ? ((bounds[1] + bounds[3]) / 2) * Math.PI / 180 : 0;
+    const decl = 23.44 * Math.PI / 180 * Math.sin(2 * Math.PI / 365 * (dayOfYear - 81));
+    const hAngle = (timeOfDay - 12) * 15 * Math.PI / 180;
+
+    const sinElevation = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hAngle);
+    const elevation = Math.asin(sinElevation);
     const isDay = elevation > 0;
-    const sunIntensity = isDay ? Math.pow(Math.max(0, elevation), 0.5) * (0.3 + 0.7 * weatherClear) : 0;
-    
-    const sunPos = new THREE.Vector3(azimuth * 1000, elevation * 1000, azimuth * 500);
 
+    const cosAzimuth = (Math.sin(decl) - Math.sin(lat) * sinElevation) / (Math.cos(lat) * Math.cos(elevation));
+    let azimuth = Math.acos(Math.max(-1, Math.min(1, cosAzimuth)));
+    if (timeOfDay < 12) {
+        azimuth = -azimuth;
+    }
+
+    const sunX = -Math.sin(azimuth) * Math.cos(elevation) * 1000;
+    const sunY = Math.sin(elevation) * 1000;
+    const sunZ = Math.cos(azimuth) * Math.cos(elevation) * 1000;
+
+    const sunPos = new THREE.Vector3(sunX, sunY, sunZ);
+    const hiddenSunPos = new THREE.Vector3(0, -1000, 0);
+
+    const sunIntensity = isDay ? Math.pow(Math.max(0, Math.sin(elevation)), 0.5) * (0.3 + 0.7 * weatherClear) : 0;
     const ambientInt = (0.2 + (isDay ? 0.6 * sunIntensity : 0.0)) * (weatherClear > 0.5 ? 1.0 : 0.7);
     
     // Smooth transition from sunrise/sunset orange to noon white to midnight blue
-    const sunColor = isDay ? new THREE.Color('#ff8a66').lerp(new THREE.Color('#ffffff'), Math.min(1, elevation * 4)) : new THREE.Color('#223355');
+    const sunColor = isDay ? new THREE.Color('#ff8a66').lerp(new THREE.Color('#ffffff'), Math.min(1, Math.sin(elevation) * 4)) : new THREE.Color('#223355');
     const fogColor = isDay ? new THREE.Color('#f0f5fa').lerp(new THREE.Color('#778899'), 1 - weatherClear) : new THREE.Color('#05070a');
 
     return (
@@ -2002,7 +2024,7 @@ function DynamicLighting() {
                 />
             )}
             <directionalLight position={[-200, 200, -200]} intensity={isDay ? 0.3 * weatherClear : 0.1} color="#ffffff" />
-            <Sky distance={450000} sunPosition={sunPos} turbidity={10 - weatherClear * 8} rayleigh={isDay ? 1.5 : 0.1} mieCoefficient={0.005} mieDirectionalG={0.8} />
+            <Sky distance={450000} sunPosition={isDay ? sunPos : hiddenSunPos} turbidity={10 - weatherClear * 8} rayleigh={isDay ? 1.5 : 0.1} mieCoefficient={0.005} mieDirectionalG={0.8} />
         </>
     );
 }

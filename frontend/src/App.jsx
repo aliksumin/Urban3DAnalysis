@@ -22,7 +22,7 @@ export default function App() {
   const [isEnvMinimized, setEnvMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds, isAnimatingRoute } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, dayOfYear, setDayOfYear, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds, isAnimatingRoute } = useStore();
 
   const missingTrackablesSet = useMemo(() => {
      const trackablesSet = new Set(masterFunctions.filter(m => m.trackable).map(m => m.name.toLowerCase()));
@@ -600,6 +600,18 @@ export default function App() {
             </div>
             {!isEnvMinimized && (
                 <div className="p-4 flex flex-col gap-6">
+               <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                     <span>Date (Month/Day)</span>
+                     {(() => {
+                        const dateObj = new Date(2024, 0, dayOfYear || 80);
+                        const mStr = dateObj.toLocaleString('default', { month: 'short' });
+                        const dStr = dateObj.getDate();
+                        return <span className="text-emerald-600 font-mono tracking-normal bg-emerald-50 px-1.5 py-0.5 border border-emerald-200 rounded">{`${mStr} ${dStr}`}</span>;
+                     })()}
+                  </div>
+                  <input type="range" min="1" max="365" step="1" value={dayOfYear || 80} onChange={(e) => setDayOfYear(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-emerald-500" />
+               </div>
                <div className="flex flex-col gap-3">
                   <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
                      <span>Time of Day</span>
