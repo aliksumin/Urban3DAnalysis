@@ -22,14 +22,19 @@ export default function App() {
   const [isEnvMinimized, setEnvMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits } = useStore();
 
   const selectedBuildingData = selectedBuildingId ? 
       (allBuildings.find(b => b.id === selectedBuildingId) || 
-       useStore.getState().customBuildings.find(b => b.id === selectedBuildingId) || 
-       useStore.getState().customPOIs.find(b => b.id === selectedBuildingId)) 
+       (timelineRegime === 'after' ? useStore.getState().customBuildings.find(b => b.id === selectedBuildingId) : undefined) || 
+       (timelineRegime === 'after' ? useStore.getState().customPOIs.find(b => b.id === selectedBuildingId) : undefined)) 
       : null;
-  const currentEdits = selectedBuildingData ? (buildingEdits[selectedBuildingId] || {}) : {};
+      
+  const currentEdits = selectedBuildingData ? 
+      (timelineRegime === 'before' ? 
+          (buildingEdits[selectedBuildingId] || {}) : 
+          { ...(buildingEdits[selectedBuildingId] || {}), ...(manualBuildingEdits[selectedBuildingId] || {}) }) 
+      : {};
 
   const displayedFunctions = currentEdits.functions || (() => {
       let defaults = getDefaultFunctions(selectedBuildingData, masterFunctions);
@@ -204,11 +209,16 @@ export default function App() {
            </button>
            {toolsMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-56 overflow-hidden z-30">
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('building'); setToolsMenuOpen(false); }}><Building2 size={14}/>Place Building</button>
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('road'); setToolsMenuOpen(false); }}><Route size={14}/>Draw Road</button>
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('poi'); setToolsMenuOpen(false); }}><MapPin size={14}/>Place Function Node</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('building'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><Building2 size={14}/>Place Building</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('road'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><Route size={14}/>Draw Road</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('poi'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><MapPin size={14}/>Place Function Node</button>
              </div>
            )}
+        </div>
+
+        <div className="flex bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-sm overflow-hidden p-1 gap-1 ml-2">
+            <button className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${timelineRegime === 'before' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`} onClick={() => setTimelineRegime('before')}>Before</button>
+            <button className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${timelineRegime === 'after' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`} onClick={() => setTimelineRegime('after')}>After</button>
         </div>
       </div>
 
@@ -386,7 +396,13 @@ export default function App() {
 
                   {/* Building Information Content Tab */}
                   {(currentTab === 'building' && !isRightPanelMinimized) && (
-                     <div className="p-5 flex flex-col gap-5 flex-1 overflow-y-auto custom-scrollbar bg-white">
+                     <div className="p-5 flex flex-col gap-5 flex-1 overflow-y-auto custom-scrollbar bg-white relative">
+                        {timelineRegime === 'before' && (
+                            <div className="absolute inset-0 z-10 bg-white/20 flex flex-col items-center justify-end pb-6 rounded-b-lg pointer-events-auto">
+                                <div className="text-xs text-slate-700 font-bold bg-white/80 px-4 py-2 rounded-lg backdrop-blur-sm shadow-sm text-center border border-slate-200 max-w-[90%]">Switch to "After" timeline to edit object overrides manually.</div>
+                            </div>
+                        )}
+                        <div className={`flex flex-col gap-5 ${timelineRegime === 'before' ? 'opacity-70 pointer-events-none select-none' : ''}`}>
                         {!selectedBuildingData.isPOI && (
                             <div className="flex flex-col gap-2">
                                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">HEIGHT OVERRIDE (m)</span>
@@ -394,13 +410,13 @@ export default function App() {
                                  <input 
                                    type="range" min="3" max="300" step="1" 
                                    value={currentEdits.height !== undefined ? currentEdits.height : (selectedBuildingData.h || selectedBuildingData.height || 10)} 
-                                   onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], height: parseFloat(e.target.value) } }))}
+                                   onChange={e => setManualBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], height: parseFloat(e.target.value) } }))}
                                    className="flex-1 accent-blue-500 cursor-ew-resize h-1"
                                  />
                                  <input 
                                    type="number" min="3" max="300" step="1" 
                                    value={currentEdits.height !== undefined ? currentEdits.height : (selectedBuildingData.h || selectedBuildingData.height || 10)} 
-                                   onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], height: parseFloat(e.target.value) } }))}
+                                   onChange={e => setManualBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], height: parseFloat(e.target.value) } }))}
                                    className="text-xs bg-white p-1 rounded font-mono w-14 text-center text-slate-700 shadow-sm border border-slate-300 outline-none focus:border-blue-500"
                                  />
                                </div>
@@ -413,14 +429,14 @@ export default function App() {
                                  <input 
                                     type="color" 
                                     value={currentEdits.color || "#ffffff"}
-                                    onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], color: e.target.value } }))}
+                                    onChange={e => setManualBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], color: e.target.value } }))}
                                     className="w-8 h-8 rounded shrink-0 bg-transparent cursor-pointer border border-slate-300"
                                  />
                                  <input
                                     type="text"
                                     value={currentEdits.color || ""}
                                     placeholder="Inherit"
-                                    onChange={e => setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], color: e.target.value } }))}
+                                    onChange={e => setManualBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], color: e.target.value } }))}
                                     className="bg-white shadow-sm border border-slate-200 px-2 py-1 flex-1 text-xs outline-none rounded font-mono"
                                  />
                               </div>
@@ -440,7 +456,7 @@ export default function App() {
                                                    newF[i].name = e.target.value;
                                                    const mFn = masterFunctions.find(mf => mf.name === e.target.value);
                                                    if (mFn) newF[i].openTime = mFn.defaultOpeningTime;
-                                                   setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
+                                                   setManualBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
                                                }}
                                                className="bg-white shadow-sm border border-slate-200 px-2 py-1 flex-1 min-w-0 text-slate-700 outline-none rounded font-medium"
                                            >
@@ -449,7 +465,7 @@ export default function App() {
                                            </select>
                                            <button className="text-red-400 hover:text-red-600 bg-white border border-slate-200 rounded w-6 h-6 flex items-center justify-center font-bold" onClick={() => {
                                                 const newF = [...displayedFunctions].filter((_, idx) => idx !== i);
-                                                setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
+                                                setManualBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
                                            }}>×</button>
                                        </div>
                                        <div className="flex items-center text-xs gap-2">
@@ -461,7 +477,7 @@ export default function App() {
                                                 onChange={e => {
                                                    const newF = [...displayedFunctions];
                                                    newF[i].openTime = e.target.value;
-                                                   setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
+                                                   setManualBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
                                                 }}
                                                 className="bg-white shadow-sm border border-slate-200 px-2 py-1 flex-1 min-w-0 text-slate-700 outline-none rounded font-mono text-center tracking-widest text-[10px]"
                                             />
@@ -471,7 +487,7 @@ export default function App() {
                                <button 
                                    onClick={() => {
                                         const newF = [...displayedFunctions, { name: 'Residential', openTime: '-' }];
-                                        setBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
+                                        setManualBuildingEdits(prev => ({ ...prev, [selectedBuildingId]: { ...prev[selectedBuildingId], functions: newF } }));
                                    }}
                                    className="text-xs mt-1 bg-white border border-dashed border-slate-300 text-slate-500 py-2 rounded hover:bg-slate-50 hover:text-blue-500 hover:border-blue-300 transition-colors font-medium flex items-center justify-center gap-2"
                                >
@@ -491,6 +507,7 @@ export default function App() {
                             >
                                 <Trash2 size={16}/> Delete Object
                             </button>
+                        </div>
                         </div>
                      </div>
                   )}

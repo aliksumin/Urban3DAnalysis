@@ -448,8 +448,11 @@ def predict(request: Request, body: PredictRequest):
         def _encode_image():
             # Normalize original baseline GAN extraction scalar array (0.0 to 1.0)
             norm = ((wind_speeds_arr / 15.0) * body.wind_speed / 30.0).clip(0, 1.0)
-            # Apply perceptual Gamma stretch to prevent the low-speed urban wakes from falling into black voids.
-            norm = np.power(norm, 0.55)
+            # Apply milder perceptual Gamma stretch to retain contrast
+            norm = np.power(norm, 0.8)
+            
+            # Elevate the floor color so zero-wind (buildings) are visible, creating a smoother gradient but retaining contrast
+            norm = 0.1 + norm * 0.9
             
             # Map this stretch cleanly back across the 256 Turbo Colormap indices
             scaled_norm = norm

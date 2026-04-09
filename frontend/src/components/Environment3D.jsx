@@ -214,7 +214,11 @@ export const useStore = create(persist((set) => ({
     iconDisplayMode: 'connected',
     setIconDisplayMode: (val) => set({ iconDisplayMode: val }),
     deletedBuildingIds: [],
-    setDeletedBuildingIds: (val) => set({ deletedBuildingIds: val })
+    setDeletedBuildingIds: (val) => set({ deletedBuildingIds: val }),
+    timelineRegime: 'after',
+    setTimelineRegime: (val) => set({ timelineRegime: val }),
+    manualBuildingEdits: {},
+    setManualBuildingEdits: (edits) => set((state) => ({ manualBuildingEdits: typeof edits === 'function' ? edits(state.manualBuildingEdits) : edits }))
 }), {
     name: 'urban-settings-storage',
     partialize: (state) => ({
@@ -233,7 +237,8 @@ export const useStore = create(persist((set) => ({
         customRoads: state.customRoads,
         customPOIs: state.customPOIs,
         iconDisplayMode: state.iconDisplayMode,
-        deletedBuildingIds: state.deletedBuildingIds
+        deletedBuildingIds: state.deletedBuildingIds,
+        manualBuildingEdits: state.manualBuildingEdits
     })
 }));
 
@@ -485,6 +490,7 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb, netColor, walka
         </mesh>
     );
 }
+const EMPTY_ARRAY = [];
 
 function OsmModel({ bounds, refEn }) {
     const [bldgs, setBldgs] = useState([]);
@@ -495,18 +501,32 @@ function OsmModel({ bounds, refEn }) {
     const [d, setD] = useState(800);
     const [minH, setMinH] = useState(0);
 
-    const { getEl, customBuildings, customRoads, deletedBuildingIds, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay } = useStore();
+    const { getEl, timelineRegime, manualBuildingEdits, customBuildings, customRoads, customPOIs, deletedBuildingIds, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay } = useStore();
     const buildingMeshRef = useRef(null);
     const [roadGraph, setRoadGraph] = useState(null);
 
+    const effCustomBuildings = timelineRegime === 'before' ? EMPTY_ARRAY : customBuildings;
+    const effCustomRoads = timelineRegime === 'before' ? EMPTY_ARRAY : customRoads;
+    const effCustomPOIs = timelineRegime === 'before' ? EMPTY_ARRAY : customPOIs;
+    const effDeletedIds = timelineRegime === 'before' ? EMPTY_ARRAY : deletedBuildingIds;
+
+    const mergedBuildingEdits = useMemo(() => {
+        if (timelineRegime === 'before') return buildingEdits || {};
+        const merged = { ...buildingEdits };
+        for (let key in manualBuildingEdits) {
+            merged[key] = { ...(merged[key] || {}), ...manualBuildingEdits[key] };
+        }
+        return merged;
+    }, [buildingEdits, manualBuildingEdits, timelineRegime]);
+
     useEffect(() => {
         const allHwys = [...hwys];
-        customRoads.forEach(cr => {
+        effCustomRoads.forEach(cr => {
             // Provide ls matching p so getEl falls back properly
             allHwys.push({ id: cr.id, p: cr.points, ls: cr.points });
         });
         if (allHwys.length > 0) setRoadGraph(buildRoadGraph(allHwys, getEl));
-    }, [hwys, getEl, customRoads]);
+    }, [hwys, getEl, effCustomRoads]);
 
     useEffect(() => {
         if (!roadGraph || !walkabilityAgentPos) return;
@@ -520,7 +540,7 @@ function OsmModel({ bounds, refEn }) {
         let satisfiability = {};
         reqFns.forEach(fn => satisfiability[fn] = 0);
         
-        const editsToApply = { ...buildingEdits };
+        const editsToApply = { ...mergedBuildingEdits };
         let madeEdits = false;
         const newArcs = [];
         
@@ -541,8 +561,8 @@ function OsmModel({ bounds, refEn }) {
         const activeTargets = new Set();
         const closestTargets = {};
 
-        const { customPOIs } = useStore.getState();
-        const evalBldgs = [...bldgs, ...customBuildings, ...(customPOIs || [])].filter(b => !deletedBuildingIds.includes(b.id));
+        // customPOIs is pulled fromeffCustomPOIs via the useStore destructured variables earlier
+        const evalBldgs = [...bldgs, ...effCustomBuildings, ...(effCustomPOIs || [])].filter(b => !effDeletedIds.includes(b.id));
 
         evalBldgs.forEach(b => {
             const bx = b.x !== undefined ? b.x : (b.minX + b.maxX) / 2;
@@ -1253,13 +1273,14 @@ function OsmModel({ bounds, refEn }) {
         const dummy = new THREE.Object3D();
         const cDummy = new THREE.Color();
         const maxDim = Math.max(w, d);
-        // Safely cap maximum grid density to guarantee maxVoxels stays well under O(memory) limits
-        const resolutionCap = Math.max(maxDim / 350, 2.0); 
-        const vSize = resolutionCap; 
-        const hSize = resolutionCap;
+        // Safely cap maximum grid density to guarantee maxVoxels stays well under memory limits
+        // 2x smaller voxels for roads and buildings to increase detail dynamically!
+        const resolutionCap = Math.max(maxDim / 700, 1.0); 
+        const vSizeDetail = resolutionCap; 
+        const vSizeBase = resolutionCap * 2.0;
         
-        const cols = Math.floor(w / vSize) + 1;
-        const rows = Math.floor(d / vSize) + 1;
+        const cols = Math.floor(w / vSizeDetail) + 2;
+        const rows = Math.floor(d / vSizeDetail) + 2;
         const maxVoxels = cols * rows;
 
         const tArr = new Float32Array(maxVoxels * 16);
@@ -1322,9 +1343,9 @@ function OsmModel({ bounds, refEn }) {
         };
 
         // Convert and append customBuildings
-        const allBldgs = bldgs.filter(b => !deletedBuildingIds.includes(b.id));
-        customBuildings.forEach(cb => {
-            if (deletedBuildingIds.includes(cb.id)) return;
+        const allBldgs = bldgs.filter(b => !effDeletedIds.includes(b.id));
+        effCustomBuildings.forEach(cb => {
+            if (effDeletedIds.includes(cb.id)) return;
             allBldgs.push({
                 id: cb.id,
                 p: cb.points,
@@ -1337,7 +1358,7 @@ function OsmModel({ bounds, refEn }) {
         });
 
         const allHwys = [...hwys];
-        customRoads.forEach(cr => {
+        effCustomRoads.forEach(cr => {
             const minX = Math.min(...cr.points.map(p => p[0]));
             const maxX = Math.max(...cr.points.map(p => p[0]));
             const minY = Math.min(...cr.points.map(p => p[1]));
@@ -1355,18 +1376,15 @@ function OsmModel({ bounds, refEn }) {
         allHwys.forEach(h => addToGrid(h, hwysGrid));
         sand.forEach(s => addToGrid(s, sandGrid));
 
-        for (let x = 0; x <= w; x += vSize) {
-            for (let z = 0; z >= -d; z -= vSize) {
-                const lx = x;
-                const lz = -z;
-                const [lon, lat] = cb ? reproject(lx, lz, cb[0], cb[1]) : [0, 0];
-                let rawEl = refEn && getEl && cb ? getEl(lon, lat) : 0;
-                if (rawEl == null || isNaN(rawEl)) rawEl = 0;
+        for (let xBase = 0; xBase <= w; xBase += vSizeBase) {
+            for (let zBase = 0; zBase >= -d; zBase -= vSizeBase) {
+                const minBx = xBase - vSizeBase / 2;
+                const maxBx = xBase + vSizeBase / 2;
+                const minBz = zBase - vSizeBase / 2; 
+                const maxBz = zBase + vSizeBase / 2;
 
-                let isBuilding = false, bHeight = 0, isWater = false, wtEl = 0, isRoad = false, isSand = false;
-                
-                const cx = Math.floor(lx / CELL_SIZE);
-                const cz = Math.floor(lz / CELL_SIZE);
+                const cx = Math.floor(xBase / CELL_SIZE);
+                const cz = Math.floor(-zBase / CELL_SIZE);
                 const cellKey = cx + "_" + cz;
 
                 const cellWatr = watrGrid.get(cellKey) || [];
@@ -1374,7 +1392,42 @@ function OsmModel({ bounds, refEn }) {
                 const cellHwys = hwysGrid.get(cellKey) || [];
                 const cellSand = sandGrid.get(cellKey) || [];
 
-                // Priority 1: Water
+                let needsDetail = false;
+                for (let b of cellBldgs) {
+                    if (maxBx < b.minX || minBx > b.maxX || -minBz < b.minY || -maxBz > b.maxY) continue;
+                    needsDetail = true; break;
+                }
+                if (!needsDetail) {
+                    for (let h of cellHwys) {
+                        if (maxBx < h.minX - 10 || minBx > h.maxX + 10 || -minBz < h.minY - 10 || -maxBz > h.maxY + 10) continue;
+                        needsDetail = true; break;
+                    }
+                }
+
+                const steps = needsDetail ? 
+                    [ {x: xBase - vSizeDetail/2, z: zBase + vSizeDetail/2}, {x: xBase + vSizeDetail/2, z: zBase + vSizeDetail/2},
+                      {x: xBase - vSizeDetail/2, z: zBase - vSizeDetail/2}, {x: xBase + vSizeDetail/2, z: zBase - vSizeDetail/2} ] :
+                    [ {x: xBase, z: zBase} ];
+                    
+                const currentVSize = needsDetail ? vSizeDetail : vSizeBase;
+                // Force vertical alignment grid to ALWAYS use the strict detail size 
+                // so large base terrain blocks don't step vertically disconnected!
+                const hSize = vSizeDetail;
+
+                for (let step of steps) {
+                    const x = step.x;
+                    const z = step.z;
+                    if (x < -currentVSize || x > w + currentVSize || z > currentVSize || z < -d - currentVSize) continue;
+
+                    const lx = x;
+                    const lz = -z;
+                    const [lon, lat] = cb ? reproject(lx, lz, cb[0], cb[1]) : [0, 0];
+                    let rawEl = refEn && getEl && cb ? getEl(lon, lat) : 0;
+                    if (rawEl == null || isNaN(rawEl)) rawEl = 0;
+
+                    let isBuilding = false, bHeight = 0, isWater = false, wtEl = 0, isRoad = false, isSand = false;
+                    
+                    // Priority 1: Water
                 for (let wt of cellWatr) {
                     if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
                     if (ptInPoly([lx, lz], wt.p)) {
@@ -1440,23 +1493,25 @@ function OsmModel({ bounds, refEn }) {
                     let waterY = Math.floor(Math.max(0, wtEl - minH) / hSize) * hSize;
                     let wHeight = waterY - (-10) + hSize;
                     let wP_y = -10 + wHeight / 2 - hSize / 2;
-                    setMatrix(wArr, wIdx, x, wP_y, z, vSize, wHeight, vSize);
+                    setMatrix(wArr, wIdx, x, wP_y, z, currentVSize, wHeight, currentVSize);
                     wIdx += 16;
                 } else {
                     let tHeight = topY - (-10) + hSize;
                     let tP_y = -10 + tHeight / 2 - hSize / 2;
-                    setMatrix(tArr, tIdx, x, tP_y, z, vSize, tHeight, vSize);
+                    setMatrix(tArr, tIdx, x, tP_y, z, currentVSize, tHeight, currentVSize);
                     tIdx += 16;
                 }
 
                 if (!isWater && isBuilding) {
                     const bid = matchedBuilding.id;
 
-                    let bhY = topY + Math.floor(bHeight / hSize) * hSize;
+                    // Apply visual vertical exaggeration to make buildings look proportionately correct in an isometric view
+                    const visualScale = 1.8;
+                    let bhY = topY + Math.floor((bHeight * visualScale) / hSize) * hSize;
                     if (bhY >= topY + hSize) {
                         let bH = bhY - (topY + hSize) + hSize;
                         let bP_y = (topY + hSize) + bH / 2 - hSize / 2;
-                        setMatrix(bArr, bIdx, x, bP_y, z, vSize, bH, vSize);
+                        setMatrix(bArr, bIdx, x, bP_y, z, currentVSize, bH, currentVSize);
                         
                         bInstIds.push(bid);
                         bIdx += 16;
@@ -1479,13 +1534,14 @@ function OsmModel({ bounds, refEn }) {
                     }
                 } else if (isRoad) {
                     let rP_y = topY + hSize / 2 + 0.25;
-                    setMatrix(rArr, rIdx, x, rP_y, z, vSize, 0.6, vSize);
+                    setMatrix(rArr, rIdx, x, rP_y, z, currentVSize, 0.6, currentVSize);
                     rIdx += 16;
                 } else if (isSand) {
                     let sP_y = topY + hSize / 2;
-                    setMatrix(sArr, sIdx, x, sP_y, z, vSize, hSize, vSize);
+                    setMatrix(sArr, sIdx, x, sP_y, z, currentVSize, hSize, currentVSize);
                     sIdx += 16;
                 }
+                } // End inner step loop
             }
         }
 
@@ -1502,7 +1558,7 @@ function OsmModel({ bounds, refEn }) {
             buildingEmissives: bEmi.slice(0, bcIdx),
             buildingInstanceMeta: bMeta
         };
-    }, [w, d, bldgs, water, sand, hwys, minH, refEn, getEl, customBuildings, customRoads]);
+    }, [w, d, bldgs, water, sand, hwys, minH, refEn, getEl, effCustomBuildings, effCustomRoads, effDeletedIds]);
 
     useEffect(() => {
         if (!buildingMeshRef.current || !buildingInstanceMeta || !buildingIdsByInstance) return;
@@ -1525,14 +1581,15 @@ function OsmModel({ bounds, refEn }) {
 
         for (let i = 0; i < buildingInstanceMeta.length; i++) {
             const meta = buildingInstanceMeta[i];
-            const edit = buildingEdits[meta.bid] || {};
+            const edit = mergedBuildingEdits[meta.bid] || {};
 
             const activeHeight = edit.height !== undefined ? edit.height : meta.bHeight;
-            let bhY = meta.topY + Math.floor(activeHeight / meta.hSize) * meta.hSize;
+            const visualScale = 1.8; // Match the visual exaggeration parameter used in geometry construction
+            let bhY = meta.topY + Math.floor((activeHeight * visualScale) / meta.hSize) * meta.hSize;
             let bH = Math.max(0, bhY - (meta.topY + meta.hSize) + meta.hSize);
             let bP_y = (meta.topY + meta.hSize) + bH / 2 - meta.hSize / 2;
 
-            if (deletedBuildingIds.includes(meta.bid)) {
+            if (effDeletedIds.includes(meta.bid)) {
                 bH = 0;
             }
 
@@ -1611,7 +1668,7 @@ function OsmModel({ bounds, refEn }) {
         if (shouldUpdateColor) colorAttr.needsUpdate = true;
         if (shouldUpdateEmi && emiAttr) emiAttr.needsUpdate = true;
         
-    }, [buildingInstanceMeta, buildingIdsByInstance, buildingEdits, buildingColorMode, solidColor, masterFunctions, selectedBuildingId, walkabilityActive, walkabilityArcs, deletedBuildingIds]);
+    }, [buildingInstanceMeta, buildingIdsByInstance, mergedBuildingEdits, buildingColorMode, solidColor, masterFunctions, selectedBuildingId, walkabilityActive, walkabilityArcs, effDeletedIds]);
 
 
     const vGeom = useMemo(() => new THREE.BoxGeometry(1, 1, 1), []);
@@ -1715,6 +1772,10 @@ function OsmModel({ bounds, refEn }) {
     const dayFactor = Math.max(0, Math.min(1, Math.sin(((timeOfDay - 6) / 24) * Math.PI * 2) * 3));
     const netColor = useMemo(() => new THREE.Color('#ff4d00').lerp(new THREE.Color('#0033ff'), dayFactor), [dayFactor]);
 
+    const finalBldgsForWind = useMemo(() => {
+        return [...bldgs, ...effCustomBuildings, ...(effCustomPOIs || [])].filter(b => !effDeletedIds.includes(b.id));
+    }, [bldgs, effCustomBuildings, effCustomPOIs, effDeletedIds]);
+
     return (
         <>
             {showDiagnostics && (
@@ -1780,7 +1841,7 @@ function OsmModel({ bounds, refEn }) {
                 <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} netColor={netColor} walkabilityAgentPos={walkabilityAgentPos} radiusMeters={useStore.getState().walkabilityRadiusMeters} />
                 
                 {windSimRunning && (
-                    <WindOverlay bounds={windSimBounds} buildings={bldgs} minH={minH} fullW={w} fullD={d} refEn={refEn} />
+                    <WindOverlay bounds={windSimBounds} buildings={finalBldgsForWind} minH={minH} fullW={w} fullD={d} refEn={refEn} />
                 )}
 
                 <InstancedVoxels 
@@ -1906,7 +1967,20 @@ function DynamicLighting() {
 }
 
 function IconOverlay() {
-    const { iconDisplayMode, allBuildings, customBuildings, customPOIs, buildingEdits, masterFunctions, walkabilityArcs, cityW, cityD, deletedBuildingIds } = useStore();
+    const { iconDisplayMode, allBuildings, customBuildings, customPOIs, buildingEdits, masterFunctions, walkabilityArcs, cityW, cityD, deletedBuildingIds, timelineRegime, manualBuildingEdits } = useStore();
+    
+    const effCustomBuildings = timelineRegime === 'before' ? EMPTY_ARRAY : customBuildings;
+    const effCustomPOIs = timelineRegime === 'before' ? EMPTY_ARRAY : customPOIs;
+    const effDeletedIds = timelineRegime === 'before' ? EMPTY_ARRAY : deletedBuildingIds;
+    
+    const mergedBuildingEdits = useMemo(() => {
+        if (timelineRegime === 'before') return buildingEdits || {};
+        const merged = { ...buildingEdits };
+        for (let key in manualBuildingEdits) {
+            merged[key] = { ...(merged[key] || {}), ...manualBuildingEdits[key] };
+        }
+        return merged;
+    }, [buildingEdits, manualBuildingEdits, timelineRegime]);
     
     const iconMap = useMemo(() => ({
         'residential': Home, 'commercial': Store, 'industrial': Factory, 'office': Briefcase, 
@@ -1925,14 +1999,14 @@ function IconOverlay() {
     }), []);
 
     if (iconDisplayMode === 'none') return null;
-    const combinedList = [...(allBuildings||[]), ...(customBuildings||[]), ...(customPOIs||[])].filter(b => !deletedBuildingIds.includes(b.id));
+    const combinedList = [...(allBuildings||[]), ...(effCustomBuildings||[]), ...(effCustomPOIs||[])].filter(b => !effDeletedIds.includes(b.id));
     const iconsToRender = [];
     const connectedBids = new Set(walkabilityArcs.map(a => a.bid));
 
     combinedList.forEach(b => {
         if (iconDisplayMode === 'connected' && !connectedBids.has(b.id)) return;
         
-        let buildingFns = buildingEdits[b.id]?.functions;
+        let buildingFns = mergedBuildingEdits[b.id]?.functions;
         if (!buildingFns || buildingFns.length === 0) {
             buildingFns = getDefaultFunctions(b, masterFunctions);
         }
@@ -1944,8 +2018,12 @@ function IconOverlay() {
             let mFn = masterFunctions.find(mf => mf.name.toLowerCase() === primaryFn);
             let pColor = mFn ? mFn.color : '#3b82f6';
 
-            let posX = b.x || (b.minX + b.maxX)/2;
-            let posZ = b.z || (b.minY + b.maxY)/2;
+            let posX = b.x !== undefined ? b.x : (b.minX + b.maxX)/2;
+            let posZ = b.z !== undefined ? b.z : (b.minY + b.maxY)/2;
+            
+            // Clip off out-of-bounds tags!
+            if (posX < 0 || posX > cityW || posZ < 0 || posZ > cityD) return;
+            
             let posY = b.y !== undefined ? b.y + 2 : ((b.height || b.h || 0) + (b.isPOI ? 2 : 15));
 
             const IconComponent = iconMap[primaryFn] || HelpCircle;

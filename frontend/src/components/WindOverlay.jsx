@@ -45,6 +45,12 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             tex.colorSpace = THREE.SRGBColorSpace;
             tex.minFilter = THREE.LinearFilter;
             tex.magFilter = THREE.LinearFilter;
+            
+            // Re-align the bounding box response from the GAN natively matching the user slider
+            tex.center.set(0.5, 0.5);
+            const wRad = (useStore.getState().windDirection || 0) * Math.PI / 180;
+            tex.rotation = wRad;
+            
             tex.needsUpdate = true;
             setResultTex(tex);
         };
@@ -65,8 +71,9 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             const windRad = windDirection * Math.PI / 180;
             
             // Extract native Cartesian flow vectors dynamically (0=North blows South(+V), 90=East blows West(-U))
-            const u = -Math.sin(windRad);
-            const v = Math.cos(windRad);
+            // The GAN is structurally restricted to Left-to-Right (+u) nominal bounding conditions. We rotate the city canvas instead!
+            const u = 1.0;
+            const v = 0.0;
 
             // Initialize global deep air and baseline wind
             for (let i = 0; i < size; i++) {
@@ -90,15 +97,23 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             ctx.fillStyle = 'black';
             ctx.fillRect(0, 0, N, N);
             
+            // Rotate the extraction context to perfectly emulate wind vectors against the PyTorch restricted inputs
+            ctx.save();
+            ctx.translate(N/2, N/2);
+            ctx.rotate(-windRad);
+            ctx.translate(-N/2, -N/2);
+            
             // Buildings are drawn pure white (255) representing Geometry
             ctx.fillStyle = 'white';
             ctx.beginPath();
             buildings.forEach(b => {
                 // Ensure only physical volumetric structures block wind, omitting flat landuse/poi ground plates
-                const isVolumetric = b.tags?.building && b.tags.building !== 'no';
+                const isVolumetric = b.renderType === 'building' || b.id?.startsWith('cbld') || (b.tags?.building && b.tags.building !== 'no');
                 if (!isVolumetric) return;
-                
-                b.p.forEach((pt, idx) => {
+                const pts = b.p || b.points;
+                if (!pts) return;
+
+                pts.forEach((pt, idx) => {
                     const lX = pt[0];
                     const lY = pt[1];
                     const px = ((lX - gwX) / worldW) * N;
@@ -110,6 +125,8 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
                 ctx.closePath();
             });
             ctx.fill();
+            
+            ctx.restore(); // Ensure the rotation doesn't warp following state captures
             
             const imgData = ctx.getImageData(0, 0, N, N).data;
             
@@ -200,8 +217,9 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             
             let smoothY = Math.max(0, rawEl - minH);
             
-            // Hover 3.5 meters organically above the discrete voxel mesh step layers securely mirroring topography
-            pos.setY(i, smoothY + 3.5);
+            
+            // Hover 4.5 meters organically above the discrete voxel mesh step layers securely mirroring topography (lifted above roads)
+            pos.setY(i, smoothY + 4.5);
         }
         geo.computeVertexNormals();
         return geo;
