@@ -1776,6 +1776,19 @@ function OsmModel({ bounds, refEn }) {
         return [...bldgs, ...effCustomBuildings, ...(effCustomPOIs || [])].filter(b => !effDeletedIds.includes(b.id));
     }, [bldgs, effCustomBuildings, effCustomPOIs, effDeletedIds]);
 
+    const walkabilityPathsGeom = useMemo(() => {
+        if (!walkabilityPaths || walkabilityPaths.length === 0) return null;
+        const pos = new Float32Array(walkabilityPaths.length * 6);
+        let i = 0;
+        for (const p of walkabilityPaths) {
+            pos[i++] = p[0][0]; pos[i++] = minH + 5; pos[i++] = -p[0][1];
+            pos[i++] = p[1][0]; pos[i++] = minH + 5; pos[i++] = -p[1][1];
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        return geom;
+    }, [walkabilityPaths, minH]);
+
     return (
         <>
             {showDiagnostics && (
@@ -1913,13 +1926,11 @@ function OsmModel({ bounds, refEn }) {
                         </mesh>
                     </group>
                 )}
-                {walkabilityPaths && walkabilityPaths.map((path, idx) => {
-                    const points = [
-                        new THREE.Vector3(path[0][0], minH + 5, -path[0][1]),
-                        new THREE.Vector3(path[1][0], minH + 5, -path[1][1])
-                    ];
-                    return <Line key={idx} points={points} color={netColor} lineWidth={1} transparent opacity={0.5} blending={THREE.AdditiveBlending} />;
-                })}
+                {walkabilityPathsGeom && (
+                    <lineSegments geometry={walkabilityPathsGeom}>
+                        <lineBasicMaterial color={netColor} transparent opacity={0.5} blending={THREE.AdditiveBlending} />
+                    </lineSegments>
+                )}
             </group>
         </>
     );
@@ -2012,12 +2023,6 @@ function IconOverlay() {
         }
 
         if (buildingFns && buildingFns.length > 0) {
-            let primaryFn = buildingFns[0].name.toLowerCase();
-            if (!iconMap[primaryFn]) primaryFn = 'retail';
-            
-            let mFn = masterFunctions.find(mf => mf.name.toLowerCase() === primaryFn);
-            let pColor = mFn ? mFn.color : '#3b82f6';
-
             let posX = b.x !== undefined ? b.x : (b.minX + b.maxX)/2;
             let posZ = b.z !== undefined ? b.z : (b.minY + b.maxY)/2;
             
@@ -2026,24 +2031,36 @@ function IconOverlay() {
             
             let posY = b.y !== undefined ? b.y + 2 : ((b.height || b.h || 0) + (b.isPOI ? 2 : 15));
 
-            const IconComponent = iconMap[primaryFn] || HelpCircle;
             iconsToRender.push(
                 <Html key={b.id} position={[posX, posY, -posZ]} center zIndexRange={[100, 0]}>
                     <div 
-                        className="relative flex flex-col items-center justify-end w-14 h-16 drop-shadow-xl opacity-95 transition-transform hover:scale-110 cursor-pointer pointer-events-auto"
+                        className="flex flex-row items-end justify-center -space-x-4 hover:space-x-1 transition-all duration-300 pointer-events-auto cursor-pointer drop-shadow-xl opacity-95"
                         onClick={(e) => {
                             e.stopPropagation();
                             useStore.getState().setSelectedBuildingId(b.id);
                         }}
                     >
-                        <svg viewBox="0 0 24 24" className="w-[52px] h-[52px]" style={{ color: pColor }} fill="currentColor" stroke="white" strokeWidth="1.5">
-                            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-                        </svg>
-                        <div 
-                            className="absolute top-[20px] left-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-none text-white drop-shadow-sm" 
-                        >
-                            <IconComponent size={22} strokeWidth={2.5} />
-                        </div>
+                        {buildingFns.map((fn, idx) => {
+                            let fnName = fn.name.toLowerCase();
+                            if (!iconMap[fnName]) fnName = 'retail';
+                            let mFn = masterFunctions.find(mf => mf.name.toLowerCase() === fnName);
+                            let pColor = mFn ? mFn.color : '#3b82f6';
+                            const IconComponent = iconMap[fnName] || HelpCircle;
+                            
+                            // Ensure the first item is naturally elevated or subsequent items scale dynamically
+                            const isPrimary = idx === 0;
+
+                            return (
+                                <div key={idx} className="relative flex flex-col items-center justify-end transition-transform hover:-translate-y-2" style={{ zIndex: 10 - idx }}>
+                                    <svg viewBox="0 0 24 24" className="w-[46px] h-[46px]" style={{ color: pColor }} fill="currentColor" stroke="white" strokeWidth="1.5">
+                                        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+                                    </svg>
+                                    <div className="absolute top-[17px] left-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-none text-white drop-shadow-sm">
+                                        <IconComponent size={18} strokeWidth={2.5} />
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </Html>
             );

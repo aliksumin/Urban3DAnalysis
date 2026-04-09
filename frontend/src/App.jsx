@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Environment3D, { useStore, getDefaultFunctions } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
 import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2 } from 'lucide-react';
@@ -22,7 +22,45 @@ export default function App() {
   const [isEnvMinimized, setEnvMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds } = useStore();
+
+  const missingTrackablesSet = useMemo(() => {
+     const trackablesSet = new Set(masterFunctions.filter(m => m.trackable).map(m => m.name.toLowerCase()));
+     
+     if (walkabilityAgentPos) {
+         // Agent is active! Missed = trackables - activeArcsNames
+         const activeArcsNames = new Set((walkabilityArcs || []).map(a => a.name.toLowerCase()));
+         return new Set([...trackablesSet].filter(x => !activeArcsNames.has(x)));
+     } else {
+         // Agent is NOT active. Crawl the scene natively!
+         const presentFuncs = new Set();
+         const effDeletedIds = timelineRegime === 'after' ? (deletedBuildingIds || []) : [];
+         const effCustomB = timelineRegime === 'after' ? (customBuildings || []) : [];
+         const effCustomP = timelineRegime === 'after' ? (customPOIs || []) : [];
+         const allBs = [...(allBuildings || []), ...effCustomB, ...effCustomP].filter(b => !effDeletedIds.includes(b.id));
+         
+         const mergedEdits = { ...buildingEdits };
+         if (timelineRegime === 'after') {
+            for (const key in manualBuildingEdits) {
+                mergedEdits[key] = { ...(mergedEdits[key] || {}), ...(manualBuildingEdits[key] || {}) };
+            }
+         }
+
+         allBs.forEach(b => {
+             let buildingFns = mergedEdits[b.id]?.functions;
+             if (!buildingFns || buildingFns.length === 0) {
+                 buildingFns = getDefaultFunctions(b, masterFunctions);
+             }
+             if (buildingFns) {
+                 buildingFns.forEach(f => {
+                     presentFuncs.add(f.name.toLowerCase());
+                 });
+             }
+         });
+         
+         return new Set([...trackablesSet].filter(x => !presentFuncs.has(x)));
+     }
+  }, [masterFunctions, walkabilityAgentPos, walkabilityArcs, allBuildings, customBuildings, customPOIs, deletedBuildingIds, buildingEdits, manualBuildingEdits, timelineRegime]);
 
   const selectedBuildingData = selectedBuildingId ? 
       (allBuildings.find(b => b.id === selectedBuildingId) || 
@@ -460,7 +498,10 @@ export default function App() {
                                                }}
                                                className="bg-white shadow-sm border border-slate-200 px-2 py-1 flex-1 min-w-0 text-slate-700 outline-none rounded font-medium"
                                            >
-                                             {[...masterFunctions].sort((a,b) => a.name.localeCompare(b.name)).map(mf => <option key={mf.id} value={mf.name}>{mf.name}</option>)}
+                                             {[...masterFunctions].sort((a,b) => a.name.localeCompare(b.name)).map(mf => {
+                                                 const isMissed = missingTrackablesSet.has(mf.name.toLowerCase());
+                                                 return <option key={mf.id} value={mf.name}>{mf.name}{isMissed ? ' *' : ''}</option>;
+                                             })}
                                              {!masterFunctions.find(mf => mf.name === f.name) && <option value={f.name}>{f.name}</option>}
                                            </select>
                                            <button className="text-red-400 hover:text-red-600 bg-white border border-slate-200 rounded w-6 h-6 flex items-center justify-center font-bold" onClick={() => {

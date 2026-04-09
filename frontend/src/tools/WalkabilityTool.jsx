@@ -4,18 +4,21 @@ import { Target, Crosshair, BrainCircuit, Loader2 } from 'lucide-react';
 import { useStore } from '../components/Environment3D';
 
 export function WalkabilityInfrastructurePanel() {
-    const { walkabilityArcs, walkabilityAgentPos, timeOfDay } = useStore();
+    const { walkabilityArcs, walkabilityAgentPos, timeOfDay, masterFunctions } = useStore();
     
     // Aggregate unique functions being targeted right now.
     const activeArcs = walkabilityArcs || [];
     const uniqueFuncs = [];
     const seen = new Set();
     activeArcs.forEach(a => {
-        if (!seen.has(a.name)) {
+        if (!seen.has(a.name.toLowerCase())) {
             uniqueFuncs.push(a);
-            seen.add(a.name);
+            seen.add(a.name.toLowerCase());
         }
     });
+    
+    const trackables = (masterFunctions || []).filter(m => m.trackable).map(m => m.name.toLowerCase());
+    const missingTrackables = trackables.filter(t => !seen.has(t));
 
     const isDay = timeOfDay > 6 && timeOfDay < 18;
     const themeColor = isDay ? '#00f3ff' : '#ffb700'; // Cyberpunk Blue/Gold
@@ -26,7 +29,6 @@ export function WalkabilityInfrastructurePanel() {
             <div className="flex-1 flex flex-col min-h-0 shrink overflow-hidden">
                 <div className="flex items-center justify-between mb-4 shrink-0">
                     <span className="text-sm font-bold uppercase tracking-[0.3em]" style={glowStyle}>Target Tracking</span>
-                    <span className="text-xs font-mono tracking-widest" style={{color: themeColor}}>{uniqueFuncs.length} NODES</span>
                 </div>
                 {walkabilityAgentPos ? (
                     <div className="flex flex-col gap-3 flex-1 min-h-[50px] overflow-y-auto custom-scrollbar opacity-90">
@@ -36,6 +38,12 @@ export function WalkabilityInfrastructurePanel() {
                             </div>
                         )) : (
                             <div className="text-xs font-mono" style={{ color: themeColor, opacity: 0.6 }}>NO ACTIVE CONNECTIONS</div>
+                        )}
+                        {/* Display missing functions list count directly underneath the connected lists */}
+                        {missingTrackables.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-red-500/20 text-xs font-mono font-bold tracking-widest" style={{ color: '#ff4444', textShadow: '0 0 8px rgba(255, 0, 0, 0.5)' }}>
+                                {missingTrackables.length} FUNCTIONS MISSING
+                            </div>
                         )}
                     </div>
                 ) : (
