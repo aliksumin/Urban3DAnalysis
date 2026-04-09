@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { PanelSection, PanelFooter, Button, Slider, Metric } from '../ui';
-import { Target, Crosshair, BrainCircuit, Loader2 } from 'lucide-react';
+import { Target, Crosshair, BrainCircuit, Loader2, Route, Play, Square } from 'lucide-react';
 import { useStore } from '../components/Environment3D';
 
 export function WalkabilityInfrastructurePanel() {
-    const { walkabilityArcs, walkabilityAgentPos, timeOfDay, masterFunctions } = useStore();
+    const { walkabilityArcs, walkabilityAgentPos, timeOfDay, masterFunctions, isAnimatingRoute, setAnimatingRoute } = useStore();
     
     // Aggregate unique functions being targeted right now.
     const activeArcs = walkabilityArcs || [];
@@ -338,6 +338,39 @@ ${JSON.stringify(promptData)}`;
                     <Metric label="Active Graph Nodes" value={walkabilityActiveNodes || "AWAITING DEPLOY"} />
                     <Metric label="Target Satisfiability" value={walkabilityTargetFulfill || "N/A"} />
                     <Metric label="Average Distance" value={walkabilityAvgDist + " m"} />
+                </div>
+            </PanelSection>
+
+            <PanelSection title="Custom Animation" className="flex-1 mt-2">
+                <div className="flex flex-col gap-2">
+                    <Button 
+                        variant={useStore.getState().activeModelingTool === 'walkability_route' ? "primary" : "secondary"} 
+                        className={`w-full py-2.5 justify-center gap-2 ${useStore.getState().activeModelingTool === 'walkability_route' ? 'bg-blue-500 text-white' : 'border-slate-200'}`} 
+                        onClick={() => {
+                            useStore.getState().setWalkabilityCustomRoute([]);
+                            useStore.getState().setActiveModelingTool(useStore.getState().activeModelingTool === 'walkability_route' ? 'walkability' : 'walkability_route');
+                        }}
+                    >
+                        <Route size={16} /> Draw Custom Route
+                    </Button>
+                    <Button 
+                        variant="secondary" 
+                        disabled={!useStore.getState().walkabilityCustomRoute || useStore.getState().walkabilityCustomRoute.length < 2}
+                        className={`w-full py-2.5 justify-center gap-2 ${useStore.getState().walkabilityCustomRoute && useStore.getState().walkabilityCustomRoute.length > 1 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100' : 'opacity-50'}`} 
+                        onClick={async () => {
+                            try {
+                                const resp = await fetch('http://localhost:8000/api/next_animation_id');
+                                const data = await resp.json();
+                                useStore.getState().setAnimMeta({ id: data.id, idx: 0 });
+                                useStore.getState().setWalkabilityActive(true);
+                                useStore.getState().setAnimatingRoute(true);
+                            } catch (e) {
+                                console.error("Could not reach backend for anim ID", e);
+                            }
+                        }}
+                    >
+                        <Play size={16} className={useStore.getState().walkabilityCustomRoute && useStore.getState().walkabilityCustomRoute.length > 1 ? "text-indigo-500" : ""} /> Animate Path
+                    </Button>
                 </div>
             </PanelSection>
 

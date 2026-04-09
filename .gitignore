@@ -4,3 +4,6 @@ dist
 .DS_Store
 .vscode
 public/vite.svg
+
+# User Generation Output
+Output/

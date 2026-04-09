@@ -72,6 +72,9 @@ export function ModelingLayer({ regionBounds, children }) {
                 points: lPts
             };
             setCustomRoads([...customRoads, newRoad]);
+        } else if (activeModelingTool === 'walkability_route') {
+            useStore.getState().setWalkabilityCustomRoute(lPts);
+            useStore.getState().setActiveModelingTool('walkability');
         }
 
         setActiveModelingTool(null);
@@ -117,8 +120,26 @@ export function ModelingLayer({ regionBounds, children }) {
     }
 
     const flatPoints = linePoints.map(p => {
-        let { getEl } = useStore.getState();
-        let height = getEl ? getEl(p[0], p[1]) || 0 : 0;
+        let { getEl, currentBounds, cityW, cityD } = useStore.getState();
+        // The file Environment3D.jsx exports reproject, but ModelingTool.jsx relies on Environment3D.jsx,
+        // Since we cannot strictly import reproject here without a circular dependency risk (or we can just calculate it):
+        // (x / cityW) * (maxLon - minLon) + minLon
+        const w = cityW, d = cityD;
+        const cb = currentBounds;
+        let height = 0;
+        if (cb && getEl && w && d) {
+            const minLon = Math.min(cb[0], cb[2]);
+            const maxLon = Math.max(cb[0], cb[2]);
+            const minLat = Math.min(cb[1], cb[3]);
+            const maxLat = Math.max(cb[1], cb[3]);
+            
+            const lX = p[0] + w/2;
+            const lZ = d/2 - p[1];
+            
+            const lon = (lX / w) * (maxLon - minLon) + minLon;
+            const lat = (lZ / d) * (maxLat - minLat) + minLat;
+            height = getEl(lon, lat) || 0;
+        }
         return new THREE.Vector3(p[0], height + 10, p[1]);
     });
 

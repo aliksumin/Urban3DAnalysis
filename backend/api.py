@@ -547,3 +547,38 @@ async def get_amap_places(request: Request, req: AmapPlacesRequest):
     async with httpx.AsyncClient() as client:
         resp = await client.get(url)
         return JSONResponse(resp.json())
+
+class FrameRequest(BaseModel):
+    anim_id: str
+    frame_idx: int
+    b64_data: str
+
+@app.get("/api/next_animation_id")
+def next_animation_id():
+    base_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "Output", "Animation"))
+    if not os.path.exists(base_dir):
+        return {"id": "01"}
+    
+    existing = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+    max_id = 0
+    for d in existing:
+        try:
+            if int(d) > max_id:
+                max_id = int(d)
+        except:
+            pass
+            
+    return {"id": f"{max_id + 1:02d}"}
+
+@app.post("/api/save_frame")
+def save_frame(req: FrameRequest):
+    base_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "Output", "Animation", req.anim_id))
+    os.makedirs(base_dir, exist_ok=True)
+    
+    file_path = os.path.join(base_dir, f"frame_{req.frame_idx:04d}.png")
+    
+    header, encoded = req.b64_data.split(",", 1) if "," in req.b64_data else ("", req.b64_data)
+    
+    with open(file_path, "wb") as f:
+        f.write(base64.b64decode(encoded))
+    return {"status": "ok", "path": file_path}

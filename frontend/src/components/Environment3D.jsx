@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Canvas, useFrame, extend, useLoader } from '@react-three/fiber';
+import { Canvas, useFrame, extend, useLoader, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, Line, Sphere, QuadraticBezierLine, Sky, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { Water } from 'three-stdlib';
@@ -143,6 +143,14 @@ export const useStore = create(persist((set) => ({
     walkabilityActiveNodes: 0,
     walkabilityAvgDist: '--',
     walkabilityPaths: [],
+    setWalkabilityPaths: (paths) => set({ walkabilityPaths: paths }),
+    walkabilityCustomRoute: [],
+    setWalkabilityCustomRoute: (points) => set({ walkabilityCustomRoute: points }),
+    isAnimatingRoute: false,
+    setAnimatingRoute: (val) => set({ isAnimatingRoute: val }),
+    animMeta: null,
+    setAnimMeta: (meta) => set({ animMeta: meta }),
+
     walkabilityArcs: [],
     walkabilityGraphNodes: [],
     setWalkabilityActive: (val) => set({ walkabilityActive: val }),
@@ -501,7 +509,7 @@ function OsmModel({ bounds, refEn }) {
     const [d, setD] = useState(800);
     const [minH, setMinH] = useState(0);
 
-    const { getEl, timelineRegime, manualBuildingEdits, customBuildings, customRoads, customPOIs, deletedBuildingIds, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay } = useStore();
+    const { getEl, timelineRegime, manualBuildingEdits, customBuildings, customRoads, customPOIs, deletedBuildingIds, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay, walkabilityCustomRoute } = useStore();
     const buildingMeshRef = useRef(null);
     const [roadGraph, setRoadGraph] = useState(null);
 
@@ -1789,6 +1797,23 @@ function OsmModel({ bounds, refEn }) {
         return geom;
     }, [walkabilityPaths, minH]);
 
+    const walkabilityCustomRouteGeom = useMemo(() => {
+        if (!walkabilityCustomRoute || walkabilityCustomRoute.length < 2) return null;
+        const pos = new Float32Array((walkabilityCustomRoute.length - 1) * 6);
+        let i = 0;
+        for (let j = 0; j < walkabilityCustomRoute.length - 1; j++) {
+            const p1 = walkabilityCustomRoute[j];
+            const p2 = walkabilityCustomRoute[j+1];
+            const [lon1, lat1] = bounds && getEl ? reproject(p1[0], p1[1], bounds[0], bounds[1]) : [0,0];
+            const [lon2, lat2] = bounds && getEl ? reproject(p2[0], p2[1], bounds[0], bounds[1]) : [0,0];
+            pos[i++] = p1[0]; pos[i++] = (getEl ? getEl(lon1, lat1) : 0) + 1.0; pos[i++] = -p1[1];
+            pos[i++] = p2[0]; pos[i++] = (getEl ? getEl(lon2, lat2) : 0) + 1.0; pos[i++] = -p2[1];
+        }
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        return geom;
+    }, [walkabilityCustomRoute, getEl, bounds]);
+
     return (
         <>
             {showDiagnostics && (
@@ -1929,6 +1954,11 @@ function OsmModel({ bounds, refEn }) {
                 {walkabilityPathsGeom && (
                     <lineSegments geometry={walkabilityPathsGeom}>
                         <lineBasicMaterial color={netColor} transparent opacity={0.5} blending={THREE.AdditiveBlending} />
+                    </lineSegments>
+                )}
+                {walkabilityCustomRouteGeom && (
+                    <lineSegments geometry={walkabilityCustomRouteGeom}>
+                        <lineBasicMaterial color={"#ff00ff"} linewidth={2} toneMapped={false} />
                     </lineSegments>
                 )}
             </group>
@@ -2072,15 +2102,234 @@ function IconOverlay() {
     return <group position={[-cityW / 2, 0, cityD / 2]}>{iconsToRender}</group>;
 }
 
+function AnimationPusher() {
+    const { isAnimatingRoute, setAnimatingRoute, walkabilityCustomRoute, animMeta, setWalkabilityAgentPos, getEl, cityW, cityD } = useStore();
+    const { gl, camera, controls } = useThree();
+    
+    const [progressDist, setProgressDist] = useState(0);
+    const [initialOffset, setInitialOffset] = useState(null);
+    const [isProcessingFrame, setIsProcessingFrame] = useState(false);
+    
+    useEffect(() => {
+        if (isAnimatingRoute && walkabilityCustomRoute && walkabilityCustomRoute.length > 0) {
+            setProgressDist(0);
+            setIsProcessingFrame(false);
+            
+            const startP = walkabilityCustomRoute[0];
+            const bounds = useStore.getState().currentBounds;
+            const [lon, lat] = bounds && getEl ? reproject(startP[0], startP[1], bounds[0], bounds[1]) : [0,0];
+            const startY = (getEl ? getEl(lon, lat) : 0) + 1.0;
+            const absoluteStartPos = new THREE.Vector3(startP[0] - cityW/2, startY, cityD/2 - startP[1]);
+            setInitialOffset(camera.position.clone().sub(absoluteStartPos));
+            
+            if (controls) controls.enabled = false;
+        } else {
+            if (controls) controls.enabled = true;
+        }
+    }, [isAnimatingRoute, walkabilityCustomRoute, getEl, cityW, cityD, camera, controls]);
+
+    useFrame(() => {
+        if (!isAnimatingRoute || !walkabilityCustomRoute || walkabilityCustomRoute.length < 2 || isProcessingFrame) return;
+        
+        let totalLen = 0;
+        let pos = null;
+        for (let i = 0; i < walkabilityCustomRoute.length - 1; i++) {
+            const p1 = walkabilityCustomRoute[i];
+            const p2 = walkabilityCustomRoute[i+1];
+            const dx = p2[0] - p1[0];
+            const dz = p2[1] - p1[1];
+            const segDist = Math.sqrt(dx*dx + dz*dz);
+            if (progressDist <= totalLen + segDist) {
+                const t = (progressDist - totalLen) / segDist;
+                pos = [ p1[0] + dx * t, p1[1] + dz * t ];
+                break;
+            }
+            totalLen += segDist;
+        }
+        
+        if (!pos) {
+            setAnimatingRoute(false);
+            if (controls) controls.enabled = true;
+            return;
+        }
+        
+        const bounds = useStore.getState().currentBounds;
+        const [lon, lat] = bounds && getEl ? reproject(pos[0], pos[1], bounds[0], bounds[1]) : [0,0];
+        const yPos = (getEl ? getEl(lon, lat) : 0) + 1.0;
+        setWalkabilityAgentPos([pos[0], pos[1], yPos]);
+        
+        if (initialOffset) {
+            const absPos = new THREE.Vector3(pos[0] - cityW/2, yPos, cityD/2 - pos[1]);
+            camera.position.copy(absPos.clone().add(initialOffset));
+            if (controls) controls.target.copy(absPos);
+            camera.lookAt(absPos);
+        }
+        
+        setIsProcessingFrame(true);
+        
+        requestAnimationFrame(() => {
+            setTimeout(async () => {
+                const baseCanvas = gl.domElement;
+                const canvas = document.createElement('canvas');
+                canvas.width = baseCanvas.width;
+                canvas.height = baseCanvas.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(baseCanvas, 0, 0);
+
+                const store = useStore.getState();
+                const arcs = store.walkabilityArcs || [];
+                const seen = new Set();
+                const uniqueFuncs = [];
+                arcs.forEach(a => {
+                    if (!seen.has(a.name.toLowerCase())) {
+                        uniqueFuncs.push(a);
+                        seen.add(a.name.toLowerCase());
+                    }
+                });
+
+                const isDay = store.timeOfDay > 6 && store.timeOfDay < 18;
+                const themeColor = isDay ? '#00f3ff' : '#ffb700';
+
+                // --- 2D Screen Coordinate Tag Projection Engine ---
+                const { iconDisplayMode, allBuildings, customBuildings, customPOIs, buildingEdits, masterFunctions, cityW, cityD, deletedBuildingIds, timelineRegime, manualBuildingEdits } = store;
+                if (iconDisplayMode !== 'none') {
+                    const effCustomBuildings = timelineRegime === 'before' ? [] : (customBuildings||[]);
+                    const effCustomPOIs = timelineRegime === 'before' ? [] : (customPOIs||[]);
+                    const effDeletedIds = timelineRegime === 'before' ? [] : (deletedBuildingIds||[]);
+                    
+                    const mergedBuildingEdits = { ...(buildingEdits||{}) };
+                    if (timelineRegime !== 'before' && manualBuildingEdits) {
+                        for (let k in manualBuildingEdits) {
+                            mergedBuildingEdits[k] = { ...mergedBuildingEdits[k], ...manualBuildingEdits[k] };
+                        }
+                    }
+
+                    const combinedList = [...(allBuildings||[]), ...effCustomBuildings, ...effCustomPOIs].filter(b => !effDeletedIds.includes(b.id));
+                    const connectedBids = new Set((arcs||[]).map(a => a.bid));
+
+                    combinedList.forEach(b => {
+                        if (iconDisplayMode === 'connected' && !connectedBids.has(b.id)) return;
+                        
+                        let buildingFns = mergedBuildingEdits[b.id]?.functions;
+                        if (!buildingFns || buildingFns.length === 0) {
+                            buildingFns = getDefaultFunctions(b, masterFunctions) || [];
+                        }
+
+                        if (buildingFns && buildingFns.length > 0) {
+                            let posX = b.x !== undefined ? b.x : (b.minX + b.maxX)/2;
+                            let posZ = b.z !== undefined ? b.z : (b.minY + b.maxY)/2;
+                            if (posX < 0 || posX > cityW || posZ < 0 || posZ > cityD) return;
+                            let posY = b.y !== undefined ? b.y + 2 : ((b.height || b.h || 0) + (b.isPOI ? 2 : 15));
+                            
+                            const vec = new THREE.Vector3(posX - cityW/2, posY, -posZ + cityD/2);
+                            vec.project(camera);
+                            
+                            // discard off-screen / behind camera pins
+                            if (vec.z > 1 || vec.z < -1) return;
+                            
+                            const screenX = (vec.x * 0.5 + 0.5) * canvas.width;
+                            const screenY = (-(vec.y * 0.5) + 0.5) * canvas.height;
+
+                            // Base pin properties
+                            ctx.shadowBlur = Math.max(4, Math.floor(canvas.height * 0.01));
+                            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                            ctx.lineWidth = 1.5;
+                            ctx.strokeStyle = 'white';
+
+                            buildingFns.forEach((fn, idx) => {
+                                let mFn = masterFunctions.find(mf => mf.name.toLowerCase() === fn.name.toLowerCase());
+                                let pColor = mFn ? mFn.color : '#3b82f6';
+                                
+                                // Overlay stacking overlap
+                                const px = screenX + (idx * 16) - ((buildingFns.length-1)*8);
+                                const py = screenY;
+                                
+                                ctx.beginPath();
+                                ctx.arc(Math.floor(px), Math.floor(py) - 15, 8, 0, Math.PI * 2);
+                                ctx.moveTo(Math.floor(px) - 8, Math.floor(py) - 13);
+                                ctx.lineTo(Math.floor(px), Math.floor(py) + 3);
+                                ctx.lineTo(Math.floor(px) + 8, Math.floor(py) - 13);
+                                ctx.fillStyle = pColor;
+                                ctx.fill();
+                                ctx.stroke();
+                            });
+                            
+                            ctx.shadowBlur = 0; // reset for next ops
+                        }
+                    });
+                }
+                // --- End Projection Engine ---
+
+                const fSz = Math.max(16, Math.floor(canvas.height * 0.025));
+                ctx.font = `bold ${fSz}px monospace`;
+                const xPad = Math.floor(canvas.width * 0.02);
+                let yPad = Math.floor(canvas.height * 0.05);
+
+                ctx.fillStyle = themeColor;
+                ctx.shadowColor = themeColor;
+                ctx.shadowBlur = 10;
+                ctx.fillText('TARGET TRACKING', xPad, yPad);
+
+                yPad += Math.floor(fSz * 1.8);
+                if (uniqueFuncs.length > 0) {
+                    uniqueFuncs.forEach(arc => {
+                        ctx.fillStyle = arc.color || '#ffffff';
+                        ctx.shadowColor = arc.color || '#ffffff';
+                        ctx.fillText(arc.name.toUpperCase(), xPad, yPad);
+                        yPad += Math.floor(fSz * 1.5);
+                    });
+                } else {
+                    ctx.fillStyle = themeColor;
+                    ctx.shadowColor = themeColor;
+                    ctx.globalAlpha = 0.6;
+                    ctx.fillText('NO ACTIVE CONNECTIONS', xPad, yPad);
+                    ctx.globalAlpha = 1.0;
+                }
+
+                const trackables = (store.masterFunctions || []).filter(m => m.trackable).map(m => m.name.toLowerCase());
+                const missingTrackables = trackables.filter(t => !seen.has(t));
+                if (missingTrackables.length > 0) {
+                    yPad += Math.floor(fSz * 0.8);
+                    ctx.fillStyle = '#ff4444';
+                    ctx.shadowColor = '#ff4444';
+                    ctx.fillText(`${missingTrackables.length} FUNCTIONS MISSING`, xPad, yPad);
+                }
+
+                const b64 = canvas.toDataURL("image/png");
+
+                try {
+                    await fetch('http://localhost:8000/api/save_frame', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            anim_id: animMeta.id,
+                            frame_idx: Math.floor(progressDist / 3.0),
+                            b64_data: b64
+                        })
+                    });
+                    setProgressDist(d => d + 3.0);
+                } catch(e) {
+                    console.error('Frame drop export', e);
+                } finally {
+                    setIsProcessingFrame(false);
+                }
+            }, 500);
+        });
+    });
+    
+    return null;
+}
+
 export default function Environment3D({ regionBounds, reliefEnabled }) {
     return (
         <Canvas 
             onPointerMissed={() => useStore.getState().setSelectedBuildingId(null)}
-            gl={{ localClippingEnabled: true, antialias: true, logarithmicDepthBuffer: true }} 
+            gl={{ localClippingEnabled: true, antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true }} 
             camera={{ position: [0, 400, 800], fov: 35, near: 1, far: 20000 }} 
             shadows
         >
             <DynamicLighting />
+            <AnimationPusher />
             <ModelingLayer regionBounds={regionBounds}>
                 {regionBounds ? <OsmModel bounds={regionBounds} refEn={reliefEnabled} /> : <PlatformBase w={800} d={800} refEn={false} minH={0} />}
                 <IconOverlay />

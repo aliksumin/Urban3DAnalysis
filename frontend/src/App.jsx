@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Environment3D, { useStore, getDefaultFunctions } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
-import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2 } from 'lucide-react';
+import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2, Square } from 'lucide-react';
 import WalkabilityTool, { WalkabilityInfrastructurePanel } from './tools/WalkabilityTool';
 import WindTool from './tools/WindTool';
 import { ModelingHUD } from './tools/ModelingTool';
@@ -22,7 +22,7 @@ export default function App() {
   const [isEnvMinimized, setEnvMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds, isAnimatingRoute } = useStore();
 
   const missingTrackablesSet = useMemo(() => {
      const trackablesSet = new Set(masterFunctions.filter(m => m.trackable).map(m => m.name.toLowerCase()));
@@ -172,6 +172,30 @@ export default function App() {
     e.target.value = null;
   };
 
+  if (isAnimatingRoute) {
+    return (
+      <div className="w-full h-full relative overflow-hidden bg-slate-50 text-sm font-sans selection:bg-blue-500 selection:text-white text-slate-700">
+        <div className="absolute inset-0 z-0">
+          <Environment3D regionBounds={regionBounds} reliefEnabled={reliefEnabled} />
+        </div>
+        <div className="absolute top-20 left-6 z-10 pointer-events-none w-72">
+           <div className="pointer-events-auto flex flex-col shrink-0" style={{ maxHeight: 'calc(100vh - 12rem)' }}>
+               <WalkabilityInfrastructurePanel />
+           </div>
+        </div>
+        <div className="absolute top-6 right-6 z-20 pointer-events-auto">
+            <button 
+                className="flex items-center gap-2 bg-red-500/90 hover:bg-red-600 text-white px-6 py-3 rounded-lg shadow-xl font-bold uppercase tracking-widest text-sm backdrop-blur-md border border-red-500 transition-colors"
+                onClick={() => useStore.getState().setAnimatingRoute(false)}
+                style={{ boxShadow: '0 4px 20px -5px rgba(239, 68, 68, 0.4)' }}
+            >
+                <Square size={16} className="fill-white" /> Stop Animation
+            </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-full relative overflow-hidden bg-slate-50 text-sm font-sans selection:bg-blue-500 selection:text-white text-slate-700">
       <div className="absolute inset-0 z-0">
@@ -235,7 +259,7 @@ export default function App() {
            </button>
            {modulesMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-48 overflow-hidden z-30">
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('walkability'); setActiveRightTab('analysis'); useStore.getState().setWalkabilityActive(true); useStore.getState().setWindSimActive(false); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Navigation size={14}/>Walkability Network</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('walkability'); setActiveRightTab('analysis'); useStore.getState().setWindSimActive(false); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Navigation size={14}/>Walkability Network</button>
                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('wind'); setActiveRightTab('analysis'); useStore.getState().setWalkabilityActive(false); useStore.getState().setWindSimActive(true); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Wind size={14}/>Wind Analysis</button>
              </div>
            )}
@@ -254,9 +278,9 @@ export default function App() {
            )}
         </div>
 
-        <div className="flex bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-sm overflow-hidden p-1 gap-1 ml-2">
-            <button className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${timelineRegime === 'before' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`} onClick={() => setTimelineRegime('before')}>Before</button>
-            <button className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${timelineRegime === 'after' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`} onClick={() => setTimelineRegime('after')}>After</button>
+        <div className="flex bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-sm overflow-hidden p-1 gap-1">
+            <button className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${timelineRegime === 'before' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`} onClick={() => setTimelineRegime('before')}>Before</button>
+            <button className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${timelineRegime === 'after' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`} onClick={() => setTimelineRegime('after')}>After</button>
         </div>
       </div>
 
