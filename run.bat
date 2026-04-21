@@ -6,7 +6,7 @@ echo ==============================================================
 echo.
 echo Starting Microclimate Python Backend (Port 8000)...
 cd backend
-start "Eddy3D GAN Engine" cmd /c "uv.exe run uvicorn api:app --port 8000"
+start "Eddy3D GAN Engine" cmd /c "uv.exe run uvicorn api:app --port 8000 --reload"
 cd ..
 
 echo Starting Web Interface (Port 5173)...

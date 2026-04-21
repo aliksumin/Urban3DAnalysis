@@ -168,6 +168,8 @@ export const useStore = create(persist((set) => ({
     setWindSimRunning: (val) => set({ windSimRunning: val }),
     windSpeed: 10,
     setWindSpeed: (val) => set({ windSpeed: val }),
+    windComfortMetric: 'speed',
+    setWindComfortMetric: (val) => set({ windComfortMetric: val }),
     windDirection: 180,
     setWindDirection: (val) => set({ windDirection: val }),
     windParticleFlow: true,

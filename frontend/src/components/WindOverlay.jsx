@@ -21,7 +21,7 @@ function reproject(x, y, minLon, minLat) {
 }
 
 export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, refEn }) {
-    const { windSpeed, windDirection, setWalkabilityStats, getEl, currentBounds } = useStore();
+    const { windSpeed, windDirection, windComfortMetric, setWalkabilityStats, getEl, currentBounds } = useStore();
     
     // GAN target resolution
     const N = 512;
@@ -157,7 +157,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             const response = await fetch("http://localhost:8000/predict", {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data_b64: b64, wind_speed: windSpeed })
+                body: JSON.stringify({ data_b64: b64, wind_speed: windSpeed, comfort_metric: windComfortMetric })
             });
 
             if (!response.ok) {
@@ -185,7 +185,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             submitGANPayload();
         }, 150); // 150ms structural UI debounce
         return () => clearTimeout(debounceId);
-    }, [windSpeed, windDirection, bounds, buildings]);
+    }, [windSpeed, windDirection, windComfortMetric, bounds, buildings]);
 
     // Calculate High Fidelity topograph projection plane matching voxel intersections exactly
     const projectedGeometry = useMemo(() => {

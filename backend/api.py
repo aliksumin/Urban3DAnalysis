@@ -375,6 +375,7 @@ class PredictRequest(BaseModel):
     """
     data_b64: str
     wind_speed: float = 15.0
+    comfort_metric: str = "speed"
 
 
 # ---------------------------------------------------------------------------
@@ -446,22 +447,64 @@ def predict(request: Request, body: PredictRequest):
             return base64.b64encode(compressed).decode("ascii")
 
         def _encode_image():
-            # Normalize original baseline GAN extraction scalar array (0.0 to 1.0)
-            norm = ((wind_speeds_arr / 15.0) * body.wind_speed / 30.0).clip(0, 1.0)
-            # Apply milder perceptual Gamma stretch to retain contrast
-            norm = np.power(norm, 0.8)
-            
-            # Elevate the floor color so zero-wind (buildings) are visible, creating a smoother gradient but retaining contrast
-            norm = 0.1 + norm * 0.9
-            
-            # Map this stretch cleanly back across the 256 Turbo Colormap indices
-            scaled_norm = norm
-            
-            # Map this stretch cleanly back across the 256 Turbo Colormap indices
-            indices = (scaled_norm * 255.0).clip(0, 255).astype(np.int32)
-            
-            # Reconstruct exact false-color RGB array
-            rgb_f32 = TURBO_COLORMAP[indices] # Shape (N*N, 3), Float 0-1
+            actual_speeds = wind_speeds_arr * (body.wind_speed / 15.0)
+            metric = body.comfort_metric.lower()
+            if metric == "lawson":
+                bins = [4.0, 6.0, 8.0, 10.0]
+                colors = np.array([
+                    [0.0, 0.2, 1.0], # Blue
+                    [0.0, 0.8, 1.0], # Cyan
+                    [0.0, 0.8, 0.0], # Green
+                    [1.0, 0.8, 0.0], # Yellow
+                    [1.0, 0.0, 0.0]  # Red
+                ], dtype=np.float32)
+                indices = np.digitize(actual_speeds, bins)
+                rgb_f32 = colors[indices]
+            elif metric == "davenport":
+                bins = [3.6, 5.3, 7.6, 9.8]
+                colors = np.array([
+                    [0.0, 0.2, 1.0], 
+                    [0.0, 0.8, 1.0], 
+                    [0.0, 0.8, 0.0], 
+                    [1.0, 0.8, 0.0], 
+                    [1.0, 0.0, 0.0]
+                ], dtype=np.float32)
+                indices = np.digitize(actual_speeds, bins)
+                rgb_f32 = colors[indices]
+            elif metric == "nen8100":
+                bins = [5.0, 15.0]
+                colors = np.array([
+                    [0.0, 0.8, 0.0], # Green
+                    [1.0, 0.5, 0.0], # Orange
+                    [1.0, 0.0, 0.0]  # Red
+                ], dtype=np.float32)
+                indices = np.digitize(actual_speeds, bins)
+                rgb_f32 = colors[indices]
+            elif metric == "beaufort":
+                bins = [0.5, 1.5, 3.3, 5.5, 7.9, 10.7, 13.8]
+                colors = np.array([
+                    [0.5, 0.5, 0.5], # Calm (Gray)
+                    [0.4, 0.6, 0.8], # Light air
+                    [0.2, 0.6, 1.0], # Light breeze
+                    [0.0, 0.8, 0.8], # Gentle Breeze
+                    [0.0, 0.8, 0.0], # Moderate
+                    [1.0, 1.0, 0.0], # Fresh
+                    [1.0, 0.5, 0.0], # Strong
+                    [1.0, 0.0, 0.0]  # Gale
+                ], dtype=np.float32)
+                indices = np.digitize(actual_speeds, bins)
+                rgb_f32 = colors[indices]
+            else:
+                # Default "speed" logic
+                norm = ((wind_speeds_arr / 15.0) * body.wind_speed / 30.0).clip(0, 1.0)
+                norm = np.power(norm, 0.8)
+                norm = 0.1 + norm * 0.9
+                indices = (norm * 255.0).clip(0, 255).astype(np.int32)
+                rgb_f32 = TURBO_COLORMAP[indices]
+
+            # Mask out strictly zero-velocity (buildings) regions dynamically across all modes into purple
+            is_building = (wind_speeds_arr == 0.0)
+            rgb_f32[is_building] = [0.19, 0.07, 0.23]
             
             # Repack array into PNG safely via PIL
             clean_image_u8 = (rgb_f32 * 255.0).astype(np.uint8).reshape(512, 512, 3)
