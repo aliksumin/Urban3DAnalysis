@@ -753,7 +753,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v4_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v26_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1126,79 +1126,247 @@ function OsmModel({ bounds, refEn }) {
                         });
                     });
 
-                    // Forceful global merging of opposite coastlines is disabled as it catastrophically loops closed islands.
-
-                    // Apply global boundary routing to ALL native unclosed coastline strings
-                    unclosedCoasts.forEach(coast => {
-                        let pts = coast.p;
-                        const first = pts[0];
-                        const last = pts[pts.length - 1];
-
-                        const getEdge = (pt) => {
-                            const EPS = 0.5;
-                            if (pt[1] >= dVal - EPS) return 0; // Top boundary (North)
-                            if (pt[0] >= wVal - EPS) return 1; // Right boundary (East)
-                            if (pt[1] <= EPS) return 2;        // Bottom boundary (South)
-                            if (pt[0] <= EPS) return 3;        // Left boundary (West)
-                            return -1;
-                        };
-
-                        const nextCornerForEdge = {
-                            0: { corner: [wVal, dVal], nextEdge: 1 },      // Top boundary exits East to Right boundary
-                            1: { corner: [wVal, 0], nextEdge: 2 },         // Right boundary exits South to Bottom boundary
-                            2: { corner: [0, 0], nextEdge: 3 },            // Bottom boundary exits West to Left boundary
-                            3: { corner: [0, dVal], nextEdge: 0 }          // Left boundary exits North to Top boundary
-                        };
-
-                        let currEdge = getEdge(last);
-                        let targetEdge = getEdge(first);
-
-                        if (currEdge === -1) {
-                            const eDists = [Math.abs(last[1] - dVal), Math.abs(last[0] - wVal), Math.abs(last[1]), Math.abs(last[0])];
-                            currEdge = eDists.indexOf(Math.min(...eDists));
-                        }
-                        if (targetEdge === -1) {
-                            const eDists = [Math.abs(first[1] - dVal), Math.abs(first[0] - wVal), Math.abs(first[1]), Math.abs(first[0])];
-                            targetEdge = eDists.indexOf(Math.min(...eDists));
-                        }
-
-                        const clampToEdge = (pt, edge) => {
-                            if (edge === 0) return [pt[0], dVal];
-                            if (edge === 1) return [wVal, pt[1]];
-                            if (edge === 2) return [pt[0], 0];
-                            if (edge === 3) return [0, pt[1]];
-                            return [pt[0], pt[1]];
-                        };
-
-                        const extLast = clampToEdge(last, currEdge);
-                        const extFirst = clampToEdge(first, targetEdge);
-
-                        pts.push(extLast);
-                        if (currEdge === targetEdge) {
-                            pts.push(extFirst);
-                        } else {
-                            while (currEdge !== targetEdge) {
-                                let step = nextCornerForEdge[currEdge];
-                                pts.push(step.corner);
-                                currEdge = step.nextEdge;
+                    // Strictly merge fragmented OpenStreetMap coastline vectors natively matching adjacent geographic endpoints (within 25m)
+                    // This seamlessly links fragmented ocean vectors without mathematically looping parallel island rivers.
+                    let changed = true;
+                    while (changed && unclosedCoasts.length > 0) {
+                        changed = false;
+                        let best = { i: -1, j: -1, dist: Infinity };
+                        for (let i = 0; i < unclosedCoasts.length; i++) {
+                            for (let j = 0; j < unclosedCoasts.length; j++) {
+                                let c1 = unclosedCoasts[i].p;
+                                let c2 = unclosedCoasts[j].p;
+                                let d = Math.pow(c1[c1.length - 1][0] - c2[0][0], 2) + Math.pow(c1[c1.length - 1][1] - c2[0][1], 2);
+                                if (d < best.dist) best = { i, j, dist: d };
                             }
-                            pts.push(extFirst);
-                        }
-                        pts.push(pts[0]);
-
-                        // IMPORTANT: Recalculate Bounding Box because we just appended corners extending to the map bounds!
-                        for (let pt of pts) {
-                            if (pt[0] < coast.minX) coast.minX = pt[0];
-                            if (pt[0] > coast.maxX) coast.maxX = pt[0];
-                            if (pt[1] < coast.minY) coast.minY = pt[1];
-                            if (pt[1] > coast.maxY) coast.maxY = pt[1];
                         }
 
-                        closedCoasts.push(coast);
+                        if (best.dist < 625 && best.i !== -1) {
+                            if (best.i === best.j) {
+                                // Coastline natively closes on itself completely within mapping extent!
+                                let c = unclosedCoasts[best.i];
+                                c.p.push(c.p[0]); // explicitly seal loop perfectly
+                                closedCoasts.push(c);
+                                unclosedCoasts.splice(best.i, 1);
+                                changed = true;
+                            } else {
+                                let c1 = unclosedCoasts[best.i];
+                                let c2 = unclosedCoasts[best.j];
+
+                                let mergedP = c1.p.concat(c2.p.slice(1));
+                                let mergedLs = c1.ls.concat(c2.ls.slice(1));
+                                let mergedH = [...(c1.h || []), ...(c2.h || [])];
+                                let minX = Math.min(c1.minX, c2.minX);
+                                let maxX = Math.max(c1.maxX, c2.maxX);
+                                let minY = Math.min(c1.minY, c2.minY);
+                                let maxY = Math.max(c1.maxY, c2.maxY);
+
+                                let mergedCoast = { p: mergedP, ls: mergedLs, el: 0, isCoast: true, h: mergedH, minX, maxX, minY, maxY };
+
+                                unclosedCoasts.splice(Math.max(best.i, best.j), 1);
+                                unclosedCoasts.splice(Math.min(best.i, best.j), 1);
+                                unclosedCoasts.push(mergedCoast);
+                                changed = true;
+                            }
+                        }
+                    }
+
+                    let globalOceanHoles = [];
+                    let localWaterBodies = [];
+
+                    // 1. Separate naturally closed coastline loops (Islands vs Inner Lakes)
+                    closedCoasts.forEach((coast) => {
+                        let area = 0;
+                        const pts = coast.p;
+                        for (let i = 0; i < pts.length - 1; i++) {
+                            area += (pts[i][0] * pts[i+1][1] - pts[i+1][0] * pts[i][1]);
+                        }
+                        // Island traces CCW cartesian -> Area < 0 -> Hole
+                        if (area < 0) {
+                            globalOceanHoles.push(coast.p);
+                        } else {
+                            localWaterBodies.push(coast);
+                        }
                     });
 
-                    // Push all naturally closed and synthetically rounded coastlines to output
-                    watr.push(...closedCoasts);
+                    // Merge fragmented Coastline slices to prevent errant localized lakes
+                    const mergeCoastPaths = (lines) => {
+                        let used = new Array(lines.length).fill(false);
+                        let merged = [];
+                        for (let i = 0; i < lines.length; i++) {
+                            if (used[i]) continue;
+                            let path = { p: [...lines[i].p], ls: lines[i].ls };
+                            used[i] = true;
+                            let added = true;
+                            while (added) {
+                                added = false;
+                                let iStart = path.p[0];
+                                let iEnd = path.p[path.p.length - 1];
+                                for (let j = 0; j < lines.length; j++) {
+                                    if (used[j]) continue;
+                                    let jStart = lines[j].p[0];
+                                    let jEnd = lines[j].p[lines[j].p.length - 1];
+                                    const bEPS = 50.0;
+                                    if (Math.abs(iEnd[0] - jStart[0]) < bEPS && Math.abs(iEnd[1] - jStart[1]) < bEPS) {
+                                        path.p.push(...lines[j].p.slice(1)); used[j] = true; added = true; break;
+                                    } else if (Math.abs(iEnd[0] - jEnd[0]) < bEPS && Math.abs(iEnd[1] - jEnd[1]) < bEPS) {
+                                        path.p.push(...lines[j].p.slice(0, lines[j].p.length - 1).reverse()); used[j] = true; added = true; break;
+                                    } else if (Math.abs(iStart[0] - jStart[0]) < bEPS && Math.abs(iStart[1] - jStart[1]) < bEPS) {
+                                        path.p.unshift(...lines[j].p.slice(1).reverse()); used[j] = true; added = true; break;
+                                    } else if (Math.abs(iStart[0] - jEnd[0]) < bEPS && Math.abs(iStart[1] - jEnd[1]) < bEPS) {
+                                        path.p.unshift(...lines[j].p.slice(0, lines[j].p.length - 1)); used[j] = true; added = true; break;
+                                    }
+                                }
+                            }
+                            merged.push(path);
+                        }
+                        return merged;
+                    };
+                    
+                    let mergedUnclosed = mergeCoastPaths(unclosedCoasts);
+
+                    // 2. Map unclosed edge coastlines systematically using standard Distance Router
+                    const perimeterDist = (pt) => { // traces Clockwise
+                        if (pt[1] <= 5.0) return pt[0]; 
+                        if (pt[0] >= wVal - 5.0) return wVal + pt[1];
+                        if (pt[1] >= dVal - 5.0) return wVal + dVal + (wVal - pt[0]); 
+                        return wVal + dVal + wVal + (dVal - pt[1]); 
+                    };
+                    const getPAnchor = (pt) => {
+                        if (pt[1] <= 5.0) return [pt[0], 0];
+                        if (pt[0] >= wVal - 5.0) return [wVal, pt[1]];
+                        if (pt[1] >= dVal - 5.0) return [pt[0], dVal];
+                        return [0, pt[1]];
+                    };
+
+                    let endpoints = [];
+                    // Ensure unclosed lines actually touch bounds, otherwise snap shut native fractures
+                    mergedUnclosed.forEach((coast, idx) => {
+                        const first = coast.p[0];
+                        const last = coast.p[coast.p.length - 1];
+                        const onBoundary = (pt) => (pt[0] <= 50.0 || pt[0] >= wVal - 50.0 || pt[1] <= 50.0 || pt[1] >= dVal - 50.0);
+
+                        if (!onBoundary(first) || !onBoundary(last)) {
+                            // Errant floating lines inside continent snap shut locally
+                            coast.p.push(first);
+                            localWaterBodies.push(coast);
+                        } else {
+                            endpoints.push({ type: 'first', idx, dist: perimeterDist(first), pt: getPAnchor(first), original: coast });
+                            endpoints.push({ type: 'last', idx, dist: perimeterDist(last), pt: getPAnchor(last), original: coast });
+                        }
+                    });
+
+                    endpoints.sort((a, b) => a.dist - b.dist);
+
+                    let used = new Set();
+                    let needsGlobalOcean = false;
+                    
+                    endpoints.forEach((ep) => {
+                        if (ep.type === 'last' && !used.has(ep.idx)) {
+                            let curr = ep;
+                            let cycleParts = [];
+                            let safeBreaker = 0;
+
+                            while (safeBreaker++ < 200) {
+                                used.add(curr.idx);
+                                cycleParts.push(curr.original);
+
+                                let currentIndex = endpoints.indexOf(curr);
+                                let nextFirst = null;
+                                let searchIdx = (currentIndex + 1) % endpoints.length;
+
+                                while (searchIdx !== currentIndex && safeBreaker < 200) {
+                                    if (endpoints[searchIdx].type === 'first') {
+                                        nextFirst = endpoints[searchIdx];
+                                        break;
+                                    }
+                                    searchIdx = (searchIdx + 1) % endpoints.length;
+                                }
+
+                                if (!nextFirst) break;
+
+                                let p0 = curr.pt;
+                                let p1 = nextFirst.pt;
+
+                                let cornersAdded = [];
+                                const targetDist = nextFirst.dist < curr.dist ? nextFirst.dist + (wVal * 2 + dVal * 2) : nextFirst.dist;
+                                
+                                if (curr.dist < wVal && targetDist >= wVal) cornersAdded.push([wVal, 0]);
+                                if (curr.dist < wVal + dVal && targetDist >= wVal + dVal) cornersAdded.push([wVal, dVal]);
+                                if (curr.dist < 2 * wVal + dVal && targetDist >= 2 * wVal + dVal) cornersAdded.push([0, dVal]);
+                                if (targetDist >= 2 * wVal + 2 * dVal) cornersAdded.push([0, 0]);
+                                if (targetDist >= 3 * wVal + 2 * dVal) cornersAdded.push([wVal, 0]);
+                                
+                                let coastA = cycleParts[cycleParts.length - 1];
+                                coastA.p.push(p0);
+                                cornersAdded.forEach(c => coastA.p.push(c));
+                                coastA.p.push(p1);
+
+                                if (used.has(nextFirst.idx)) break; 
+
+                                curr = endpoints.find(e => e.idx === nextFirst.idx && e.type === 'last');
+                                if (!curr) break;
+                            }
+
+                            if (cycleParts.length > 0) {
+                                let unifiedP = [];
+                                cycleParts.forEach(cp => { cp.p.forEach(pt => { unifiedP.push(pt); }); });
+                                
+                                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                                unifiedP.forEach(pt => {
+                                    if (pt[0] < minX) minX = pt[0]; if (pt[0] > maxX) maxX = pt[0];
+                                    if (pt[1] < minY) minY = pt[1]; if (pt[1] > maxY) maxY = pt[1];
+                                });
+
+                                const pipTest = (point, vs) => {
+                                    let px = point[0], py = point[1], inside = false;
+                                    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+                                        let xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
+                                        let intersect = ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+                                        if (intersect) inside = !inside;
+                                    }
+                                    return inside;
+                                };
+
+                                // Map Infrastructure Parity Discriminator
+                                // Human infrastructure exclusively exists on the Landmass. If the generated topological wrapper encompasses
+                                // a massive density of loaded buildings and roads, it is definitively the Continental Polygon.
+                                let landHits = 0;
+                                let objSample = Math.min(200, blds.length);
+                                for (let i = 0; i < objSample; i++) {
+                                    if (pipTest(blds[i].p[0], unifiedP)) landHits++;
+                                }
+                                let hwySample = Math.min(200, hwys.length);
+                                for (let i = 0; i < hwySample; i++) {
+                                    if (pipTest(hwys[i].p[0], unifiedP)) landHits++;
+                                }
+                                
+                                let totalS = objSample + hwySample;
+                                let landRatio = totalS > 0 ? (landHits / totalS) : 0;
+
+                                if (landRatio > 0.15) {
+                                    // wrapper structurally encompasses >15% of all human infrastructure! It IS the terrestrial Continent!
+                                    needsGlobalOcean = true;
+                                    globalOceanHoles.push(unifiedP);
+                                } else {
+                                    // wrapper contains virtually no infrastructure! It IS the flat Global Ocean!
+                                    localWaterBodies.push({ p: unifiedP, h: globalOceanHoles, ls: cycleParts[0].ls, el: 0, minX, maxX, minY, maxY });
+                                }
+                            }
+                        }
+                    });
+                    let globalOceanPolygons = [];
+                    if (needsGlobalOcean) {
+                        const massiveOcean = [[0,0], [wVal,0], [wVal,dVal], [0,dVal], [0,0]];
+                        globalOceanPolygons.push({ p: massiveOcean, h: globalOceanHoles, el: 0, minX: 0, maxX: wVal, minY: 0, maxY: dVal });
+                    }
+
+                    localWaterBodies.forEach(b => {
+                        if (!b.h || b.h.length === 0) b.h = globalOceanHoles;
+                    });
+
+                    watr.push(...globalOceanPolygons);
+                    watr.push(...localWaterBodies);
 
                     if (blds.length || hwys.length || watr.length || snd.length) {
                         let computedMinH = 0;
@@ -1211,14 +1379,16 @@ function OsmModel({ bounds, refEn }) {
                             watr.forEach(w => {
                                 let minFound = Infinity;
                                 let maxFound = -Infinity;
-                                w.ls.forEach(pt => {
-                                    // Remove bounding box constraint that arbitrarily rejected internal map lakes/ponds!
-                                    const el = getEl(pt[0], pt[1]);
-                                    if (!isNaN(el)) {
-                                        if (el < minFound) minFound = el;
-                                        if (el > maxFound) maxFound = el;
-                                    }
-                                });
+                                if (w.ls) {
+                                    w.ls.forEach(pt => {
+                                        // Remove bounding box constraint that arbitrarily rejected internal map lakes/ponds!
+                                        const el = getEl(pt[0], pt[1]);
+                                        if (!isNaN(el)) {
+                                            if (el < minFound) minFound = el;
+                                            if (el > maxFound) maxFound = el;
+                                        }
+                                    });
+                                }
                                 if (minFound === Infinity) minFound = 0;
                                 if (maxFound === -Infinity) maxFound = 0;
 
@@ -1413,23 +1583,23 @@ function OsmModel({ bounds, refEn }) {
 
                     let isBuilding = false, bHeight = 0, isWater = false, wtEl = 0, isRoad = false, isSand = false;
                     
-                    // Priority 1: Water
-                for (let wt of cellWatr) {
-                    if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
-                    if (ptInPoly([lx, lz], wt.p)) {
-                        let isHole = false;
-                        if (wt.h) {
-                            for (let hole of wt.h) {
-                                if (ptInPoly([lx, lz], hole)) { isHole = true; break; }
+                    // Priority 1: High-Performance Polygon Parity Even-Odd Loop
+                    for (let wt of cellWatr) {
+                        if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
+                        if (ptInPoly([lx, lz], wt.p)) {
+                            let isHole = false;
+                            if (wt.h) {
+                                for (let hole of wt.h) {
+                                    if (ptInPoly([lx, lz], hole)) { isHole = true; break; }
+                                }
+                            }
+                            if (!isHole) {
+                                isWater = true;
+                                wtEl = wt.el || 0;
+                                break;
                             }
                         }
-                        if (!isHole) {
-                            isWater = true;
-                            wtEl = wt.el;
-                            break;
-                        }
                     }
-                }
 
                 let matchedBuilding = null;
                 // Priority 2: Building
