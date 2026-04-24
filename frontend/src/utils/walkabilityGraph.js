@@ -134,8 +134,44 @@ export function computeWalkability(graph, startPt, maxDistMeters) {
     // Snap to road threshold (150 meters)
     if (!closestNode || minDist > 150) return { reachableNodes: [], paths: [] }; 
     
+    class MinHeap {
+        constructor() { this.data = []; }
+        push(val) {
+            this.data.push(val);
+            this.bubbleUp(this.data.length - 1);
+        }
+        pop() {
+            if (this.data.length === 1) return this.data.pop();
+            const top = this.data[0];
+            this.data[0] = this.data.pop();
+            this.bubbleDown(0);
+            return top;
+        }
+        bubbleUp(idx) {
+            while (idx > 0) {
+                let p = Math.floor((idx - 1) / 2);
+                if (this.data[idx].dist >= this.data[p].dist) break;
+                [this.data[idx], this.data[p]] = [this.data[p], this.data[idx]];
+                idx = p;
+            }
+        }
+        bubbleDown(idx) {
+            const len = this.data.length;
+            while (true) {
+                let left = 2 * idx + 1, right = 2 * idx + 2, smallest = idx;
+                if (left < len && this.data[left].dist < this.data[smallest].dist) smallest = left;
+                if (right < len && this.data[right].dist < this.data[smallest].dist) smallest = right;
+                if (smallest === idx) break;
+                [this.data[idx], this.data[smallest]] = [this.data[smallest], this.data[idx]];
+                idx = smallest;
+            }
+        }
+        get length() { return this.data.length; }
+    }
+
     const distances = new Map();
-    const pq = [{ id: closestNode, dist: 0 }];
+    const pq = new MinHeap();
+    pq.push({ id: closestNode, dist: 0 });
     const previous = new Map();
     
     for (const key of graph.keys()) {
@@ -144,12 +180,7 @@ export function computeWalkability(graph, startPt, maxDistMeters) {
     distances.set(closestNode, 0);
     
     while (pq.length > 0) {
-        // Find smallest distance in pq (faster than full sort for small PQs, but sort is simpler)
-        let minIdx = 0;
-        for (let i = 1; i < pq.length; i++) {
-            if (pq[i].dist < pq[minIdx].dist) minIdx = i;
-        }
-        const current = pq.splice(minIdx, 1)[0];
+        const current = pq.pop();
         
         if (current.dist > maxDistMeters) continue; 
         

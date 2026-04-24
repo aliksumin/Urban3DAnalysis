@@ -447,17 +447,25 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb, netColor, walka
         // 50m / 800m = ~6.25% of map * 1024px = ~64px
         const radPx = (50 / w) * 1024;
         
-        ctx.fillStyle = 'white';
-        // Add a slight blur to create a more organic, continuous accessibility heat-zone
-        ctx.filter = 'blur(12px)';
+        // Generate pre-blurred brush for performance optimization
+        const padPx = 24; // padding for 12px blur
+        const brushSize = Math.ceil((radPx + padPx) * 2);
+        const brushCanvas = document.createElement('canvas');
+        brushCanvas.width = brushSize;
+        brushCanvas.height = brushSize;
+        const bctx = brushCanvas.getContext('2d');
+        bctx.fillStyle = 'white';
+        bctx.filter = 'blur(12px)';
+        bctx.beginPath();
+        bctx.arc(brushSize / 2, brushSize / 2, radPx, 0, 2 * Math.PI);
+        bctx.fill();
+
+        const halfBrush = brushSize / 2;
         nodes.forEach(n => {
             const cx = (n.x / w) * 1024;
             const cy = (n.y / d) * 1024; 
-            ctx.beginPath();
-            ctx.arc(cx, cy, radPx, 0, 2 * Math.PI); 
-            ctx.fill();
+            ctx.drawImage(brushCanvas, cx - halfBrush, cy - halfBrush);
         });
-        ctx.filter = 'none';
 
         const tex = new THREE.CanvasTexture(canvas);
         tex.flipY = false;
@@ -473,7 +481,7 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb, netColor, walka
 
     const geometry = useMemo(() => {
         // High fidelity plane to gracefully hug voxel terrain elevations perfectly!
-        const geo = new THREE.PlaneGeometry(w, d, Math.max(1, Math.floor(w / 3.5)), Math.max(1, Math.floor(d / 3.5))); // dense grid
+        const geo = new THREE.PlaneGeometry(w, d, Math.max(1, Math.floor(w / 6.0)), Math.max(1, Math.floor(d / 6.0))); // optimized dense grid
         geo.rotateX(-Math.PI / 2); // Stand it upright into world coordinates (Y up)
         
         const pos = geo.attributes.position;
@@ -2244,7 +2252,7 @@ function IconOverlay() {
             let posY = b.y !== undefined ? b.y + 2 : ((b.height || b.h || 0) + (b.isPOI ? 2 : 15));
 
             iconsToRender.push(
-                <Html key={b.id} position={[posX, posY, -posZ]} center zIndexRange={[100, 0]}>
+                <Html key={b.id} position={[posX, posY, -posZ]} center>
                     <div 
                         className="flex flex-row items-end justify-center -space-x-4 hover:space-x-1 transition-all duration-300 pointer-events-auto cursor-pointer drop-shadow-xl opacity-95"
                         onClick={(e) => {
