@@ -748,7 +748,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v3_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -936,7 +936,7 @@ function OsmModel({ bounds, refEn }) {
                             el.tags?.building === 'reservoir' || el.tags?.building === 'pool' || el.tags?.amenity === 'water' || el.tags?.leisure === 'swimming_pool' || el.tags?.amenity === 'fountain';
 
                         const isBuilding = el.tags?.building && el.tags.building !== 'no';
-                        const isPOI = isBuilding || el.tags?.leisure || el.tags?.amenity || el.tags?.shop || el.tags?.office || el.tags?.landuse;
+                        const isPOI = isBuilding || el.tags?.amenity || el.tags?.shop || el.tags?.office;
 
                         if (isPOI && !isWater) {
                             let h = el.tags?.height ? parseFloat(el.tags.height) : (el.tags?.['building:levels'] ? parseInt(el.tags['building:levels']) * 3 : (isBuilding ? 10 : 2));
@@ -1154,75 +1154,8 @@ function OsmModel({ bounds, refEn }) {
                         unclosedCoasts.push(mergedCoast);
                     }
 
-                    // Apply global boundary routing to ALL remaining unified coastline strings
-                    unclosedCoasts.forEach(coast => {
-                        let pts = coast.p;
-                        const first = pts[0];
-                        const last = pts[pts.length - 1];
-
-                        const getEdge = (pt) => {
-                            const EPS = 0.5;
-                            if (pt[1] >= dVal - EPS) return 0; // Top boundary (North)
-                            if (pt[0] >= wVal - EPS) return 1; // Right boundary (East)
-                            if (pt[1] <= EPS) return 2;        // Bottom boundary (South)
-                            if (pt[0] <= EPS) return 3;        // Left boundary (West)
-                            return -1;
-                        };
-
-                        const nextCornerForEdge = {
-                            0: { corner: [wVal, dVal], nextEdge: 1 },      // Top boundary exits East to Right boundary
-                            1: { corner: [wVal, 0], nextEdge: 2 },         // Right boundary exits South to Bottom boundary
-                            2: { corner: [0, 0], nextEdge: 3 },            // Bottom boundary exits West to Left boundary
-                            3: { corner: [0, dVal], nextEdge: 0 }          // Left boundary exits North to Top boundary
-                        };
-
-                        let currEdge = getEdge(last);
-                        let targetEdge = getEdge(first);
-
-                        if (currEdge === -1) {
-                            const eDists = [Math.abs(last[1] - dVal), Math.abs(last[0] - wVal), Math.abs(last[1]), Math.abs(last[0])];
-                            currEdge = eDists.indexOf(Math.min(...eDists));
-                        }
-                        if (targetEdge === -1) {
-                            const eDists = [Math.abs(first[1] - dVal), Math.abs(first[0] - wVal), Math.abs(first[1]), Math.abs(first[0])];
-                            targetEdge = eDists.indexOf(Math.min(...eDists));
-                        }
-
-                        const clampToEdge = (pt, edge) => {
-                            if (edge === 0) return [pt[0], dVal];
-                            if (edge === 1) return [wVal, pt[1]];
-                            if (edge === 2) return [pt[0], 0];
-                            if (edge === 3) return [0, pt[1]];
-                            return [pt[0], pt[1]];
-                        };
-
-                        const extLast = clampToEdge(last, currEdge);
-                        const extFirst = clampToEdge(first, targetEdge);
-
-                        pts.push(extLast);
-                        if (currEdge === targetEdge) {
-                            pts.push(extFirst);
-                        } else {
-                            while (currEdge !== targetEdge) {
-                                let step = nextCornerForEdge[currEdge];
-                                pts.push(step.corner);
-                                currEdge = step.nextEdge;
-                            }
-                            pts.push(extFirst);
-                        }
-                        pts.push(pts[0]);
-
-                        // IMPORTANT: Recalculate Bounding Box because we just appended corners extending to the map bounds!
-                        for (let pt of pts) {
-                            if (pt[0] < coast.minX) coast.minX = pt[0];
-                            if (pt[0] > coast.maxX) coast.maxX = pt[0];
-                            if (pt[1] < coast.minY) coast.minY = pt[1];
-                            if (pt[1] > coast.maxY) coast.maxY = pt[1];
-                        }
-
-                        closedCoasts.push(coast);
-                    });
-
+                    // Global boundary routing for unclosed coastlines disabled to prevent catastrophic bounding-box flooding in island cities (e.g. New York).
+                    // Explicitly mapped water bodies, closed rivers, lakes, and multipolygon bay relations will continue to map flawlessly.
                     // Push all naturally closed and synthetically rounded coastlines to output
                     watr.push(...closedCoasts);
 
@@ -1459,17 +1392,15 @@ function OsmModel({ bounds, refEn }) {
 
                 let matchedBuilding = null;
                 // Priority 2: Building
-                if (!isWater) {
-                    for (let b of cellBldgs) {
-                        if (lx < b.minX || lx > b.maxX || lz < b.minY || lz > b.maxY) continue;
-                        if (ptInPoly([lx, lz], b.p)) {
-                            isBuilding = true; bHeight = b.h; matchedBuilding = b; break;
-                        }
+                for (let b of cellBldgs) {
+                    if (lx < b.minX || lx > b.maxX || lz < b.minY || lz > b.maxY) continue;
+                    if (ptInPoly([lx, lz], b.p)) {
+                        isBuilding = true; bHeight = b.h; matchedBuilding = b; break;
                     }
                 }
 
                 // Priority 3: Road
-                if (!isWater && !isBuilding) {
+                if (!isBuilding) {
                     for (let h of cellHwys) {
                         if (lx < h.minX - 10 || lx > h.maxX + 10 || lz < h.minY - 10 || lz > h.maxY + 10) continue;
                         for (let i = 0; i < h.p.length - 1; i++) {
@@ -1492,9 +1423,9 @@ function OsmModel({ bounds, refEn }) {
                 }
 
                 let baseTerrain = rawEl;
-                if (isWater) {
-                    baseTerrain -= 50; // Deeply sink terrain for water basins
-                } else if (isSand) {
+                if (isWater && !isRoad && !isBuilding) {
+                    baseTerrain -= 50; // Deeply sink terrain for water basins, but leave supports for bridges
+                } else if (isSand && !isRoad && !isBuilding) {
                     baseTerrain -= 2; // Slight dip for beaches
                 }
 
@@ -1514,7 +1445,7 @@ function OsmModel({ bounds, refEn }) {
                     tIdx += 16;
                 }
 
-                if (!isWater && isBuilding) {
+                if (isBuilding) {
                     const bid = matchedBuilding.id;
 
                     // Apply visual vertical exaggeration to make buildings look proportionately correct in an isometric view

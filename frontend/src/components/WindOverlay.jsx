@@ -108,7 +108,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             ctx.beginPath();
             buildings.forEach(b => {
                 // Ensure only physical volumetric structures block wind, omitting flat landuse/poi ground plates
-                const isVolumetric = b.renderType === 'building' || b.id?.startsWith('cbld') || (b.tags?.building && b.tags.building !== 'no');
+                const isVolumetric = b.renderType === 'building' || String(b.id || "").startsWith('cbld') || (b.tags?.building && b.tags.building !== 'no');
                 if (!isVolumetric) return;
                 const pts = b.p || b.points;
                 if (!pts) return;

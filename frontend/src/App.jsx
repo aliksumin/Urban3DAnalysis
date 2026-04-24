@@ -297,7 +297,7 @@ export default function App() {
             });
             if (selectedBuildingData) openTabs.push({ 
                 id: 'building', 
-                label: `Building ${selectedBuildingData.id.slice(0, 10)}`,
+                label: `Building ${String(selectedBuildingData.id).slice(0, 10)}`,
                 icon: <Building2 size={14} className="text-emerald-500" /> 
             });
 
