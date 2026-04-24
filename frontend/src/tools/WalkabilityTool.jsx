@@ -116,7 +116,7 @@ export default function WalkabilityTool({ regionBounds }) {
                 if (useOvertureMaps) {
                     setAiProgressText('Querying Overture Spatial Engine...');
                     try {
-                        const ovRes = await fetch('http://localhost:8000/api/overture', {
+                        const ovRes = await fetch(`http://${window.location.hostname}:8005/api/overture`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ bbox: regionBounds }), signal: controller.signal
                         });
@@ -143,7 +143,7 @@ export default function WalkabilityTool({ regionBounds }) {
                     setAiProgressText('Querying Amap Regional Overlay...');
                     try {
                         const plg = `${minLon},${minLat}|${maxLon},${maxLat}`;
-                        const aRes = await fetch('http://localhost:8000/api/amap_places', {
+                        const aRes = await fetch(`http://${window.location.hostname}:8005/api/amap_places`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ api_key: amapApiKey, polygon: plg }), signal: controller.signal
                         });
@@ -165,7 +165,7 @@ export default function WalkabilityTool({ regionBounds }) {
                 if (useGooglePlaces && googlePlacesKey) {
                     setAiProgressText('Querying Google Places Context...');
                     try {
-                        const gRes = await fetch('http://localhost:8000/api/google_places', {
+                        const gRes = await fetch(`http://${window.location.hostname}:8005/api/google_places`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ api_key: googlePlacesKey, lat: cLat, lng: cLon, radius: 1500 }), signal: controller.signal
                         });
@@ -359,7 +359,7 @@ ${JSON.stringify(promptData)}`;
                         className={`w-full py-2.5 justify-center gap-2 ${useStore.getState().walkabilityCustomRoute && useStore.getState().walkabilityCustomRoute.length > 1 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100' : 'opacity-50'}`} 
                         onClick={async () => {
                             try {
-                                const resp = await fetch('http://localhost:8000/api/next_animation_id');
+                                const resp = await fetch(`http://${window.location.hostname}:8005/api/next_animation_id`);
                                 const data = await resp.json();
                                 useStore.getState().setAnimMeta({ id: data.id, idx: 0 });
                                 useStore.getState().setWalkabilityActive(true);

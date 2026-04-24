@@ -154,7 +154,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             setWalkabilityStats({ walkabilityAvgDist: `Transmitting Tensor API...` });
 
             // Fire local python surrogate REST HTTP node
-            const response = await fetch("http://localhost:8000/predict", {
+            const response = await fetch(`http://${window.location.hostname}:8005/predict`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ data_b64: b64, wind_speed: windSpeed, comfort_metric: windComfortMetric })
