@@ -118,14 +118,20 @@ export default function App() {
   };
 
   const handleSaveScene = async () => {
+    const state = useStore.getState();
     const data = {
-      buildingEdits: useStore.getState().buildingEdits,
-      buildingColorMode: useStore.getState().buildingColorMode,
-      solidColor: useStore.getState().solidColor,
-      masterFunctions: useStore.getState().masterFunctions,
-      aiModel: useStore.getState().aiModel,
+      buildingEdits: state.buildingEdits,
+      buildingColorMode: state.buildingColorMode,
+      solidColor: state.solidColor,
+      masterFunctions: state.masterFunctions,
+      aiModel: state.aiModel,
       bounds: regionBounds,
-      relief: reliefEnabled
+      relief: reliefEnabled,
+      customBuildings: state.customBuildings,
+      customRoads: state.customRoads,
+      customPOIs: state.customPOIs,
+      deletedBuildingIds: state.deletedBuildingIds,
+      manualBuildingEdits: state.manualBuildingEdits
     };
     const jsonStr = JSON.stringify(data, null, 2);
 

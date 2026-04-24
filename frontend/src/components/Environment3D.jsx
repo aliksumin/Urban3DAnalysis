@@ -186,7 +186,12 @@ export const useStore = create(persist((set) => ({
         buildingColorMode: data.buildingColorMode || 'solid',
         solidColor: data.solidColor || '#ffffff',
         masterFunctions: data.masterFunctions || state.masterFunctions,
-        aiModel: data.aiModel || state.aiModel
+        aiModel: data.aiModel || state.aiModel,
+        manualBuildingEdits: data.manualBuildingEdits || {},
+        customBuildings: data.customBuildings || [],
+        customRoads: data.customRoads || [],
+        customPOIs: data.customPOIs || [],
+        deletedBuildingIds: data.deletedBuildingIds || []
     })),
     timeOfDay: 14,
     setTimeOfDay: (val) => set({ timeOfDay: val }),
@@ -748,7 +753,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v3_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v4_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1121,41 +1126,77 @@ function OsmModel({ bounds, refEn }) {
                         });
                     });
 
-                    // Forcefully unify all disconnected coastline segments natively
-                    while (unclosedCoasts.length > 1) {
-                        let best = { i: -1, j: -1, dist: Infinity };
-                        for (let i = 0; i < unclosedCoasts.length; i++) {
-                            for (let j = 0; j < unclosedCoasts.length; j++) {
-                                if (i === j) continue;
-                                let c1 = unclosedCoasts[i].p;
-                                let c2 = unclosedCoasts[j].p;
-                                let d = Math.pow(c1[c1.length - 1][0] - c2[0][0], 2) + Math.pow(c1[c1.length - 1][1] - c2[0][1], 2);
-                                if (d < best.dist) best = { i, j, dist: d };
-                            }
+                    // Forceful global merging of opposite coastlines is disabled as it catastrophically loops closed islands.
+
+                    // Apply global boundary routing to ALL native unclosed coastline strings
+                    unclosedCoasts.forEach(coast => {
+                        let pts = coast.p;
+                        const first = pts[0];
+                        const last = pts[pts.length - 1];
+
+                        const getEdge = (pt) => {
+                            const EPS = 0.5;
+                            if (pt[1] >= dVal - EPS) return 0; // Top boundary (North)
+                            if (pt[0] >= wVal - EPS) return 1; // Right boundary (East)
+                            if (pt[1] <= EPS) return 2;        // Bottom boundary (South)
+                            if (pt[0] <= EPS) return 3;        // Left boundary (West)
+                            return -1;
+                        };
+
+                        const nextCornerForEdge = {
+                            0: { corner: [wVal, dVal], nextEdge: 1 },      // Top boundary exits East to Right boundary
+                            1: { corner: [wVal, 0], nextEdge: 2 },         // Right boundary exits South to Bottom boundary
+                            2: { corner: [0, 0], nextEdge: 3 },            // Bottom boundary exits West to Left boundary
+                            3: { corner: [0, dVal], nextEdge: 0 }          // Left boundary exits North to Top boundary
+                        };
+
+                        let currEdge = getEdge(last);
+                        let targetEdge = getEdge(first);
+
+                        if (currEdge === -1) {
+                            const eDists = [Math.abs(last[1] - dVal), Math.abs(last[0] - wVal), Math.abs(last[1]), Math.abs(last[0])];
+                            currEdge = eDists.indexOf(Math.min(...eDists));
+                        }
+                        if (targetEdge === -1) {
+                            const eDists = [Math.abs(first[1] - dVal), Math.abs(first[0] - wVal), Math.abs(first[1]), Math.abs(first[0])];
+                            targetEdge = eDists.indexOf(Math.min(...eDists));
                         }
 
-                        if (best.dist > 100000) break; // Do not merge disjoint islands/coasts
+                        const clampToEdge = (pt, edge) => {
+                            if (edge === 0) return [pt[0], dVal];
+                            if (edge === 1) return [wVal, pt[1]];
+                            if (edge === 2) return [pt[0], 0];
+                            if (edge === 3) return [0, pt[1]];
+                            return [pt[0], pt[1]];
+                        };
 
-                        let c1 = unclosedCoasts[best.i];
-                        let c2 = unclosedCoasts[best.j];
+                        const extLast = clampToEdge(last, currEdge);
+                        const extFirst = clampToEdge(first, targetEdge);
 
-                        let mergedP = c1.p.concat(c2.p.slice(1));
-                        let mergedLs = c1.ls.concat(c2.ls.slice(1));
-                        let mergedH = [...(c1.h || []), ...(c2.h || [])];
-                        let minX = Math.min(c1.minX, c2.minX);
-                        let maxX = Math.max(c1.maxX, c2.maxX);
-                        let minY = Math.min(c1.minY, c2.minY);
-                        let maxY = Math.max(c1.maxY, c2.maxY);
+                        pts.push(extLast);
+                        if (currEdge === targetEdge) {
+                            pts.push(extFirst);
+                        } else {
+                            while (currEdge !== targetEdge) {
+                                let step = nextCornerForEdge[currEdge];
+                                pts.push(step.corner);
+                                currEdge = step.nextEdge;
+                            }
+                            pts.push(extFirst);
+                        }
+                        pts.push(pts[0]);
 
-                        let mergedCoast = { p: mergedP, ls: mergedLs, el: 0, isCoast: true, h: mergedH, minX, maxX, minY, maxY };
+                        // IMPORTANT: Recalculate Bounding Box because we just appended corners extending to the map bounds!
+                        for (let pt of pts) {
+                            if (pt[0] < coast.minX) coast.minX = pt[0];
+                            if (pt[0] > coast.maxX) coast.maxX = pt[0];
+                            if (pt[1] < coast.minY) coast.minY = pt[1];
+                            if (pt[1] > coast.maxY) coast.maxY = pt[1];
+                        }
 
-                        unclosedCoasts.splice(Math.max(best.i, best.j), 1);
-                        unclosedCoasts.splice(Math.min(best.i, best.j), 1);
-                        unclosedCoasts.push(mergedCoast);
-                    }
+                        closedCoasts.push(coast);
+                    });
 
-                    // Global boundary routing for unclosed coastlines disabled to prevent catastrophic bounding-box flooding in island cities (e.g. New York).
-                    // Explicitly mapped water bodies, closed rivers, lakes, and multipolygon bay relations will continue to map flawlessly.
                     // Push all naturally closed and synthetically rounded coastlines to output
                     watr.push(...closedCoasts);
 
