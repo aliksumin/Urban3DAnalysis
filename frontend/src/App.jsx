@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Environment3D, { useStore, getDefaultFunctions } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
-import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2, Square, Folder, Activity, Wrench } from 'lucide-react';
+import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Download, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2, Square, Folder, Activity, Wrench } from 'lucide-react';
 import WalkabilityTool, { WalkabilityInfrastructurePanel } from './tools/WalkabilityTool';
 import WindTool from './tools/WindTool';
 import { ModelingHUD } from './tools/ModelingTool';
@@ -23,7 +23,7 @@ export default function App() {
   const [isEnvMinimized, setEnvMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, dayOfYear, setDayOfYear, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds, isAnimatingRoute, showBuildings, setShowBuildings, showRoads, setShowRoads } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, dayOfYear, setDayOfYear, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds, isAnimatingRoute, showBuildings, setShowBuildings, showRoads, setShowRoads, setExportTriggerFlag } = useStore();
 
   const missingTrackablesSet = useMemo(() => {
      const trackablesSet = new Set(masterFunctions.filter(m => m.trackable).map(m => m.name.toLowerCase()));
@@ -247,6 +247,8 @@ export default function App() {
                 <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setMapModalOpen(true); setFileMenuOpen(false); }}><MapIcon size={14}/>Domain Extractor</button>
                 <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { handleSaveScene(); setFileMenuOpen(false); }}><Save size={14}/>Save Scene</button>
                 <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { fileInputRef.current?.click(); setFileMenuOpen(false); }}><FolderOpen size={14}/>Open Scene</button>
+                <div className="border-t border-slate-100 my-1"></div>
+                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2 text-blue-600" onClick={() => { setExportTriggerFlag(true); setFileMenuOpen(false); }}><Download size={14}/>Export GLB</button>
                 <div className="border-t border-slate-100 my-1"></div>
                 <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setSettingsOpen(!isSettingsOpen); setActiveRightTab('settings'); setFileMenuOpen(false); }}><Settings size={14}/>Settings</button>
                 <div className="border-t border-slate-100 my-1"></div>

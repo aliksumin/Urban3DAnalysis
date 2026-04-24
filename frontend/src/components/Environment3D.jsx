@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, extend, useLoader, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, Line, Sphere, QuadraticBezierLine, Sky, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { Water } from 'three-stdlib';
+import { Water, GLTFExporter } from 'three-stdlib';
 import { 
     Home, Store, Factory, Briefcase, GraduationCap, ShoppingCart, Cross, School, 
     Hotel, Bath, CircleParking, TreePine, Pill, Croissant, ShoppingBasket, Landmark, 
@@ -67,8 +67,10 @@ export const useStore = create(persist((set) => ({
     getEl: null,
     showBuildings: true,
     showRoads: true,
+    exportTriggerFlag: false,
     setShowBuildings: (val) => set({ showBuildings: val }),
     setShowRoads: (val) => set({ showRoads: val }),
+    setExportTriggerFlag: (val) => set({ exportTriggerFlag: val }),
     selectedBuildingId: null,
     buildingEdits: {},
     buildingColorMode: 'solid',
@@ -2029,15 +2031,19 @@ function OsmModel({ bounds, refEn }) {
                     </mesh>
                 )}
 
-                <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
-                <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
+                <group name="Layer_Terrain">
+                    <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
+                </group>
+                <group name="Layer_Sand">
+                    <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
+                </group>
                 <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} netColor={netColor} walkabilityAgentPos={walkabilityAgentPos} radiusMeters={useStore.getState().walkabilityRadiusMeters} />
                 
                 {windSimRunning && (
                     <WindOverlay bounds={windSimBounds} buildings={finalBldgsForWind} minH={minH} fullW={w} fullD={d} refEn={refEn} />
                 )}
 
-                <group visible={useStore((state)=>state.showBuildings)}>
+                <group visible={useStore((state)=>state.showBuildings)} name="Layer_Buildings">
                     <InstancedVoxels 
                         ref={buildingMeshRef}
                         data={buildingData} 
@@ -2056,10 +2062,12 @@ function OsmModel({ bounds, refEn }) {
                         onPointerOut={(e) => { e.stopPropagation(); document.body.style.cursor = 'default'; }}
                     />
                 </group>
-                <group visible={useStore((state)=>state.showRoads)}>
+                <group visible={useStore((state)=>state.showRoads)} name="Layer_Roads">
                     <InstancedVoxels data={roadData} material={roadMaterial} count={roadData.length / 16} vGeom={vGeom} />
                 </group>
-                <InstancedVoxels data={waterData} material={waterMaterial} count={waterData.length / 16} vGeom={vGeom} />
+                <group name="Layer_Water">
+                    <InstancedVoxels data={waterData} material={waterMaterial} count={waterData.length / 16} vGeom={vGeom} />
+                </group>
                 
                 {useStore.getState().walkabilityArcs && useStore.getState().walkabilityArcs.map((arc, idx) => {
                     const midPt = [
@@ -2502,6 +2510,7 @@ export default function Environment3D({ regionBounds, reliefEnabled }) {
             camera={{ position: [0, 400, 800], fov: 35, near: 1, far: 20000 }} 
             shadows
         >
+            <SceneExporter />
             <DynamicLighting />
             <AnimationPusher />
             <ModelingLayer regionBounds={regionBounds}>
@@ -2511,4 +2520,128 @@ export default function Environment3D({ regionBounds, reliefEnabled }) {
             <OrbitControls makeDefault maxPolarAngle={Math.PI / 2 - 0.05} />
         </Canvas>
     );
+}
+
+function flattenInstancedMesh(instancedMesh) {
+    const baseGeom = instancedMesh.geometry;
+    const basePositions = baseGeom.attributes.position.array;
+    const baseNormals = baseGeom.attributes.normal?.array;
+    const baseIndices = baseGeom.index?.array;
+    
+    const instanceMatrix = instancedMesh.instanceMatrix.array;
+    const instanceColor = instancedMesh.instanceColor?.array;
+    const count = instancedMesh.count;
+    
+    const numVerts = basePositions.length / 3;
+    const numIndices = baseIndices ? baseIndices.length : 0;
+    
+    const outPositions = new Float32Array(count * numVerts * 3);
+    const outNormals = baseNormals ? new Float32Array(count * numVerts * 3) : null;
+    const outColors = new Float32Array(count * numVerts * 3);
+    const outIndices = baseIndices ? new Uint32Array(count * numIndices) : null;
+    
+    // Check if three is available
+    if (typeof window === 'undefined') return new Object();
+    
+    const v = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    const im = new THREE.Matrix3();
+    const c = new THREE.Color();
+    const matColor = (instancedMesh.material && instancedMesh.material.color) ? instancedMesh.material.color : new THREE.Color(1,1,1);
+    
+    for (let i = 0; i < count; i++) {
+        m.fromArray(instanceMatrix, i * 16);
+        im.getNormalMatrix(m);
+        
+        if (instanceColor) {
+            c.fromArray(instanceColor, i * 3);
+        } else {
+            c.copy(matColor);
+        }
+        
+        for (let j = 0; j < numVerts; j++) {
+            const outVertIdx = i * numVerts + j;
+            v.set(basePositions[j*3], basePositions[j*3+1], basePositions[j*3+2]);
+            v.applyMatrix4(m);
+            outPositions[outVertIdx * 3] = v.x;
+            outPositions[outVertIdx * 3 + 1] = v.y;
+            outPositions[outVertIdx * 3 + 2] = v.z;
+            
+            if (outNormals) {
+                n.set(baseNormals[j*3], baseNormals[j*3+1], baseNormals[j*3+2]);
+                n.applyMatrix3(im).normalize();
+                outNormals[outVertIdx * 3] = n.x;
+                outNormals[outVertIdx * 3 + 1] = n.y;
+                outNormals[outVertIdx * 3 + 2] = n.z;
+            }
+            
+            outColors[outVertIdx * 3] = c.r;
+            outColors[outVertIdx * 3 + 1] = c.g;
+            outColors[outVertIdx * 3 + 2] = c.b;
+        }
+        
+        if (outIndices) {
+            for (let j = 0; j < numIndices; j++) {
+                outIndices[i * numIndices + j] = baseIndices[j] + i * numVerts;
+            }
+        }
+    }
+    
+    const targetGeom = new THREE.BufferGeometry();
+    targetGeom.setAttribute('position', new THREE.BufferAttribute(outPositions, 3));
+    if (outNormals) targetGeom.setAttribute('normal', new THREE.BufferAttribute(outNormals, 3));
+    targetGeom.setAttribute('color', new THREE.BufferAttribute(outColors, 3));
+    if (outIndices) targetGeom.setIndex(new THREE.BufferAttribute(outIndices, 1));
+    
+    return targetGeom;
+}
+
+function SceneExporter() {
+    const { scene } = useThree();
+    const shouldExport = useStore(state => state.exportTriggerFlag);
+    useEffect(() => {
+        if (shouldExport) {
+            const exportScene = new THREE.Scene();
+            scene.traverseVisible((child) => {
+                if (child.isInstancedMesh && child.count > 0) {
+                    const targetGeom = flattenInstancedMesh(child);
+                    const mat = child.material.clone ? child.material.clone() : new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide });
+                    if (Array.isArray(mat)) {
+                        mat.forEach(m => m.vertexColors = true);
+                    } else {
+                        mat.vertexColors = true;
+                    }
+                    const mesh = new THREE.Mesh(targetGeom, mat);
+                    mesh.name = child.parent?.name || "Geometry_Layer";
+                    child.matrixWorld.decompose(mesh.position, mesh.quaternion, mesh.scale);
+                    exportScene.add(mesh);
+                }
+            });
+
+            const exporter = new GLTFExporter();
+            exporter.parse(
+                exportScene,
+                (gltf) => {
+                    const blob = new Blob([gltf], { type: 'application/octet-stream' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.style.display = 'none';
+                    link.href = url;
+                    link.download = 'Urban3D_Export.glb';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    useStore.getState().setExportTriggerFlag(false);
+                },
+                (error) => {
+                    console.error('An error happened during parsing', error);
+                    useStore.getState().setExportTriggerFlag(false);
+                },
+                { binary: true } // Export as GLB for universal compact loading
+            );
+        }
+    }, [shouldExport, scene]);
+    return null;
 }
