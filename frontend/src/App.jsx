@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Environment3D, { useStore, getDefaultFunctions } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
-import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2, Square } from 'lucide-react';
+import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2, Square, Folder, Activity, Wrench } from 'lucide-react';
 import WalkabilityTool, { WalkabilityInfrastructurePanel } from './tools/WalkabilityTool';
 import WindTool from './tools/WindTool';
 import { ModelingHUD } from './tools/ModelingTool';
@@ -17,12 +17,13 @@ export default function App() {
   const [modulesMenuOpen, setModulesMenuOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
+  const [layersMenuOpen, setLayersMenuOpen] = useState(false);
   const [isRightPanelMinimized, setRightPanelMinimized] = useState(false);
   const [isWalkabilityMinimized, setWalkabilityMinimized] = useState(false);
   const [isEnvMinimized, setEnvMinimized] = useState(false);
   const fileInputRef = useRef(null);
 
-  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, dayOfYear, setDayOfYear, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds, isAnimatingRoute } = useStore();
+  const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, dayOfYear, setDayOfYear, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds, isAnimatingRoute, showBuildings, setShowBuildings, showRoads, setShowRoads } = useStore();
 
   const missingTrackablesSet = useMemo(() => {
      const trackablesSet = new Set(masterFunctions.filter(m => m.trackable).map(m => m.name.toLowerCase()));
@@ -234,12 +235,12 @@ export default function App() {
         </div>
       )}
 
-      {(fileMenuOpen || modulesMenuOpen || toolsMenuOpen) && <div className="fixed inset-0 z-10" onClick={() => { setFileMenuOpen(false); setModulesMenuOpen(false); setToolsMenuOpen(false); }} />}
+      {(fileMenuOpen || modulesMenuOpen || toolsMenuOpen || layersMenuOpen) && <div className="fixed inset-0 z-10" onClick={() => { setFileMenuOpen(false); setModulesMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }} />}
 
       <div className="absolute top-4 left-4 z-20 flex gap-2 pointer-events-auto">
         <div className="relative">
-           <button className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setFileMenuOpen(!fileMenuOpen); setModulesMenuOpen(false); }}>
-              File
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setFileMenuOpen(!fileMenuOpen); setModulesMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }}>
+              <Folder size={16}/> File
            </button>
            {fileMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-48 overflow-hidden z-30">
@@ -260,8 +261,8 @@ export default function App() {
         </div>
 
         <div className="relative">
-           <button className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setModulesMenuOpen(!modulesMenuOpen); setFileMenuOpen(false); }}>
-              Analysis Modules
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setModulesMenuOpen(!modulesMenuOpen); setFileMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }}>
+              <Activity size={16}/> Analysis Modules
            </button>
            {modulesMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-48 overflow-hidden z-30">
@@ -272,14 +273,32 @@ export default function App() {
         </div>
 
         <div className="relative">
-           <button className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setToolsMenuOpen(!toolsMenuOpen); setFileMenuOpen(false); setModulesMenuOpen(false); }}>
-              Tools
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setToolsMenuOpen(!toolsMenuOpen); setFileMenuOpen(false); setModulesMenuOpen(false); setLayersMenuOpen(false); }}>
+              <Wrench size={16}/> Tools
            </button>
            {toolsMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-56 overflow-hidden z-30">
                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('building'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><Building2 size={14}/>Place Building</button>
                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('road'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><Route size={14}/>Draw Road</button>
                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('poi'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><MapPin size={14}/>Place Function Node</button>
+             </div>
+           )}
+        </div>
+
+        <div className="relative">
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setLayersMenuOpen(!layersMenuOpen); setFileMenuOpen(false); setModulesMenuOpen(false); setToolsMenuOpen(false); }}>
+              <Layers size={16}/> Layers
+           </button>
+           {layersMenuOpen && (
+             <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-48 overflow-hidden z-30 p-2 gap-2">
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer px-2 py-1 hover:bg-slate-50 rounded">
+                    <input type="checkbox" checked={showBuildings} onChange={(e) => setShowBuildings(e.target.checked)} className="rounded border-slate-300 text-blue-500 focus:ring-blue-500" />
+                    Buildings
+                </label>
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer px-2 py-1 hover:bg-slate-50 rounded">
+                    <input type="checkbox" checked={showRoads} onChange={(e) => setShowRoads(e.target.checked)} className="rounded border-slate-300 text-blue-500 focus:ring-blue-500" />
+                    Roads
+                </label>
              </div>
            )}
         </div>

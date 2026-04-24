@@ -65,6 +65,10 @@ import { persist } from 'zustand/middleware';
 export const useStore = create(persist((set) => ({
     currentBounds: null,
     getEl: null,
+    showBuildings: true,
+    showRoads: true,
+    setShowBuildings: (val) => set({ showBuildings: val }),
+    setShowRoads: (val) => set({ showRoads: val }),
     selectedBuildingId: null,
     buildingEdits: {},
     buildingColorMode: 'solid',
@@ -2033,24 +2037,28 @@ function OsmModel({ bounds, refEn }) {
                     <WindOverlay bounds={windSimBounds} buildings={finalBldgsForWind} minH={minH} fullW={w} fullD={d} refEn={refEn} />
                 )}
 
-                <InstancedVoxels 
-                    ref={buildingMeshRef}
-                    data={buildingData} 
-                    material={buildingMaterial} 
-                    count={buildingData.length / 16} 
-                    vGeom={vGeom} 
-                    colors={buildingColors}
-                    emissives={buildingEmissives}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if(buildingIdsByInstance && buildingIdsByInstance[e.instanceId]) {
-                            setSelectedBuildingId(buildingIdsByInstance[e.instanceId]);
-                        }
-                    }}
-                    onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
-                    onPointerOut={(e) => { e.stopPropagation(); document.body.style.cursor = 'default'; }}
-                />
-                <InstancedVoxels data={roadData} material={roadMaterial} count={roadData.length / 16} vGeom={vGeom} />
+                <group visible={useStore((state)=>state.showBuildings)}>
+                    <InstancedVoxels 
+                        ref={buildingMeshRef}
+                        data={buildingData} 
+                        material={buildingMaterial} 
+                        count={buildingData.length / 16} 
+                        vGeom={vGeom} 
+                        colors={buildingColors}
+                        emissives={buildingEmissives}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if(buildingIdsByInstance && buildingIdsByInstance[e.instanceId]) {
+                                setSelectedBuildingId(buildingIdsByInstance[e.instanceId]);
+                            }
+                        }}
+                        onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
+                        onPointerOut={(e) => { e.stopPropagation(); document.body.style.cursor = 'default'; }}
+                    />
+                </group>
+                <group visible={useStore((state)=>state.showRoads)}>
+                    <InstancedVoxels data={roadData} material={roadMaterial} count={roadData.length / 16} vGeom={vGeom} />
+                </group>
                 <InstancedVoxels data={waterData} material={waterMaterial} count={waterData.length / 16} vGeom={vGeom} />
                 
                 {useStore.getState().walkabilityArcs && useStore.getState().walkabilityArcs.map((arc, idx) => {
