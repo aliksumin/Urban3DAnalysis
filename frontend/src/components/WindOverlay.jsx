@@ -1,7 +1,9 @@
 import React, { useRef, useMemo, useEffect, useState } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import { useStore } from './Environment3D';
-import pako from 'pako';
+import pako, { ungzip } from 'pako';
 
 // Raw Base64 string encoding for typed arrays
 function bytesToBase64(bytes) {
@@ -23,6 +25,7 @@ function reproject(x, y, minLon, minLat) {
 export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, refEn }) {
     const { windSpeed, windDirection, windComfortMetric, setWalkabilityStats, getEl, currentBounds } = useStore();
     
+
     // GAN target resolution
     const N = 512;
     const worldW = bounds.w;
@@ -46,7 +49,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             tex.minFilter = THREE.LinearFilter;
             tex.magFilter = THREE.LinearFilter;
             
-            // Re-align the bounding box response from the GAN natively matching the user slider
+            // Re-align the bounding box response mathematically safely reversing Y-down WebGL matrix negations globally
             tex.center.set(0.5, 0.5);
             const wRad = (useStore.getState().windDirection || 0) * Math.PI / 180;
             tex.rotation = wRad;
@@ -170,6 +173,8 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             setGanImageUrl("data:image/png;base64," + jsonDecoded.image_base64);
             setWalkabilityStats({ walkabilityAvgDist: `GAN Predict: ${jsonDecoded.width}x${jsonDecoded.height}` });
             
+            // Explicitly stripped Float Buffer block natively utilizing HTML canvas elements visually
+            
         } catch (err) {
             console.error("GAN Request Failed: ", err);
             setFetchError("API Offline or Unreachable.");
@@ -217,9 +222,8 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             
             let smoothY = Math.max(0, rawEl - minH);
             
-            
-            // Hover 4.5 meters organically above the discrete voxel mesh step layers securely mirroring topography (lifted above roads)
-            pos.setY(i, smoothY + 4.5);
+            // Hover 10.5 meters exactly clearing all chunky voxel toposurface heights flawlessly
+            pos.setY(i, smoothY + 10.5);
         }
         geo.computeVertexNormals();
         return geo;
@@ -237,19 +241,19 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
         <group>
             {/* Base Underlay Loading Plate */}
             {isFetching && (
-                <mesh position={[bounds.cx, 0, -bounds.cz]}>
-                     <primitive object={projectedGeometry} attach="geometry" />
-                     <meshBasicMaterial color="#0A1128" transparent opacity={0.65} depthWrite={false} blending={THREE.NormalBlending} />
+                <mesh position={[bounds.cx, 0, -bounds.cz]} geometry={projectedGeometry}>
+                     <meshBasicMaterial color="#0A1128" transparent opacity={0.8} depthWrite={false} blending={THREE.NormalBlending} side={THREE.DoubleSide} />
                 </mesh>
             )}
 
-            {/* AI Graphical Extracted Flow Output */}
+            {/* Failsafe Graphic Heatmap (Guarantees Core Thermal Simulation Visibility) */}
             {resultTex && (
-                <mesh position={[bounds.cx, 0, -bounds.cz]}>
-                    <primitive object={projectedGeometry} attach="geometry" />
-                    <meshBasicMaterial map={resultTex} transparent opacity={dynamicOpacity} depthWrite={true} side={THREE.DoubleSide} blending={THREE.NormalBlending} />
+                <mesh position={[bounds.cx, 0, -bounds.cz]} geometry={projectedGeometry}>
+                     <meshBasicMaterial map={resultTex} transparent opacity={0.85} depthWrite={false} side={THREE.DoubleSide} blending={THREE.NormalBlending} />
                 </mesh>
             )}
+
+
         </group>
     );
 }

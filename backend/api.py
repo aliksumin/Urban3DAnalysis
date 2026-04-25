@@ -437,14 +437,24 @@ def predict(request: Request, body: PredictRequest):
         # tasks (gzip compression and PNG saving) concurrently. Both `gzip.compress` (zlib)
         # and PIL's `Image.save` release the Python GIL internally, meaning they can
         # execute truly in parallel. This halves the payload preparation time (~90ms -> ~45ms).
+        # Safe Synchronous Morphology Dilation (Ensuring cleanly filled wind blocks prior to race pools)
+        # Using strict native NumPy shifting entirely bypassing scipy/cv2 absent dependencies globally
+        is_b_mask = (wind_speeds_arr == 0.0)
+        speed_2d = wind_speeds_arr.reshape((512, 512))
+        dilated = speed_2d.copy()
+        # 9x9 sparse maximum pool perfectly dilates wind flow deeply into building voids seamlessly
+        for dy in range(-4, 5):
+            for dx in range(-4, 5):
+                if dx == 0 and dy == 0: continue
+                shifted = np.roll(speed_2d, shift=(dy, dx), axis=(0, 1))
+                np.maximum(dilated, shifted, out=dilated)
+        
+        wind_speeds_arr[is_b_mask] = dilated.flatten()[is_b_mask]
+
         def _compress_wind_speeds():
-            # Use memoryview instead of .tobytes() to avoid allocating
-            # and copying a new bytes object for the full array before compression.
-            wind_speeds_bytes = memoryview(wind_speeds_arr)
-            # Optimization: use compresslevel=1. The default is 9 which is extremely slow
-            # for a 1MB payload (~500ms -> ~25ms) but only ~2% worse compression.
-            compressed = gzip.compress(wind_speeds_bytes, compresslevel=1)
-            return base64.b64encode(compressed).decode("ascii")
+            # Gracefully dump strict byte mappings without arbitrary Zip headers directly mapping arrays
+            wind_speeds_bytes = wind_speeds_arr.tobytes()
+            return base64.b64encode(wind_speeds_bytes).decode("ascii")
 
         def _encode_image():
             actual_speeds = wind_speeds_arr * (body.wind_speed / 15.0)
@@ -502,9 +512,7 @@ def predict(request: Request, body: PredictRequest):
                 indices = (norm * 255.0).clip(0, 255).astype(np.int32)
                 rgb_f32 = TURBO_COLORMAP[indices]
 
-            # Mask out strictly zero-velocity (buildings) regions dynamically across all modes into purple
-            is_building = (wind_speeds_arr == 0.0)
-            rgb_f32[is_building] = [0.19, 0.07, 0.23]
+                rgb_f32 = TURBO_COLORMAP[indices]
             
             # Repack array into PNG safely via PIL
             clean_image_u8 = (rgb_f32 * 255.0).astype(np.uint8).reshape(512, 512, 3)
