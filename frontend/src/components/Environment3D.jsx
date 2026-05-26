@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v38_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v39_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1496,6 +1496,21 @@ function OsmModel({ bounds, refEn }) {
                             return false;
                         });
                         w.h = [...(w.h || []), ...matchingHoles];
+                    });
+
+                    // Final pass: validate ALL holes in ALL water polygons against buildings.
+                    // Holes attached directly via validHoles during relation processing
+                    // bypass the allLandHoles filter above, so catch them here.
+                    watr.forEach(w => {
+                        if (w.h && w.h.length > 0) {
+                            w.h = w.h.filter(hole => {
+                                if (!hole || hole.length < 3) return false;
+                                for (let bi = 0; bi < blds.length; bi++) {
+                                    if (checkPointInPoly(blds[bi].p[0], hole)) return true;
+                                }
+                                return false;
+                            });
+                        }
                     });
 
                     if (blds.length || hwys.length || watr.length || snd.length) {
