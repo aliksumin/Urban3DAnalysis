@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v37_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v38_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1174,12 +1174,17 @@ function OsmModel({ bounds, refEn }) {
                         const parsedHoles = innerChains.map(chain => {
                             if (chain.length < 3) return null;
                             let pts = chain.map(g => unproject(g.lon, g.lat, sMinLon, sMinLat));
-                            // Only use naturally closed inner chains as holes.
-                            // Force-closing unclosed chains creates artificial edges
-                            // that carve triangle artifacts out of water.
                             const hf = pts[0], hl = pts[pts.length - 1];
                             const closeDist = Math.sqrt((hf[0] - hl[0]) ** 2 + (hf[1] - hl[1]) ** 2);
-                            if (closeDist > 1) return null;
+                            if (closeDist > 1) {
+                                // Chain is unclosed — close if gap is small relative to chain
+                                let perimeter = 0;
+                                for (let pi = 0; pi < pts.length - 1; pi++) {
+                                    perimeter += Math.sqrt((pts[pi+1][0]-pts[pi][0])**2 + (pts[pi+1][1]-pts[pi][1])**2);
+                                }
+                                if (closeDist > perimeter * 0.15) return null;
+                                pts.push([hf[0], hf[1]]);
+                            }
                             return pts;
                         }).filter(Boolean);
 
@@ -1470,7 +1475,16 @@ function OsmModel({ bounds, refEn }) {
                     // Match ALL land holes to ALL water polygons via proper point-in-polygon
                     // Check multiple sample points along each hole — if the first point
                     // is on the polygon edge or outside due to bbox clipping, other points match.
-                    const allLandHoles = [...globalOceanHoles, ...relationHoles];
+                    // Only use holes that contain at least one building — this filters
+                    // artifact triangles from incomplete inner chains (no buildings inside)
+                    // while keeping legitimate island holes (which contain buildings).
+                    const allLandHoles = [...globalOceanHoles, ...relationHoles].filter(hole => {
+                        if (!hole || hole.length < 3) return false;
+                        for (let bi = 0; bi < blds.length; bi++) {
+                            if (checkPointInPoly(blds[bi].p[0], hole)) return true;
+                        }
+                        return false;
+                    });
                     watr.forEach(w => {
                         const matchingHoles = allLandHoles.filter(hole => {
                             if (!w.p || w.p.length === 0 || !hole || hole.length === 0) return false;
