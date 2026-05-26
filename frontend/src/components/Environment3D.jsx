@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v31_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v32_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1444,15 +1444,21 @@ function OsmModel({ bounds, refEn }) {
                         }
                     });
                     let globalOceanPolygons = [];
-                    let needsGlobalOcean = (globalOceanHoles.length > 0) && !hasCwCycle;
+                    // Only create global ocean for TRUE island scenario:
+                    // all coastlines are closed loops entirely within the bbox (no boundary endpoints).
+                    // If coastlines touch the boundary, boundary cycles handle water/land via CW/CCW.
+                    // If we have boundary endpoints but no CW cycles, the coastlines are fragmented
+                    // and we can't determine the ocean boundary — don't flood the map.
+                    let needsGlobalOcean = (globalOceanHoles.length > 0) && (endpoints.length === 0) && !hasCwCycle;
                     if (needsGlobalOcean) {
                         const massiveOcean = [[0,0], [wVal,0], [wVal,dVal], [0,dVal], [0,0]];
                         globalOceanPolygons.push({ p: massiveOcean, h: globalOceanHoles, el: 0, minX: 0, maxX: wVal, minY: 0, maxY: dVal });
                     }
 
-                    localWaterBodies.forEach(b => {
-                        if (!b.h || b.h.length === 0) b.h = globalOceanHoles;
-                    });
+                    // Push ALL water polygons to watr FIRST, then match holes.
+                    // This ensures CW boundary water cycles also get island holes.
+                    watr.push(...globalOceanPolygons);
+                    watr.push(...localWaterBodies);
 
                     const checkPointInPoly = (point, vs) => {
                         let x = point[0], y = point[1], inside = false;
@@ -1464,6 +1470,7 @@ function OsmModel({ bounds, refEn }) {
                         return inside;
                     };
 
+                    // Match ALL land holes to ALL water polygons via proper point-in-polygon
                     const allLandHoles = [...globalOceanHoles, ...relationHoles];
                     watr.forEach(w => {
                         const matchingHoles = allLandHoles.filter(hole => {
@@ -1472,9 +1479,6 @@ function OsmModel({ bounds, refEn }) {
                         });
                         w.h = [...(w.h || []), ...matchingHoles];
                     });
-
-                    watr.push(...globalOceanPolygons);
-                    watr.push(...localWaterBodies);
 
                     if (blds.length || hwys.length || watr.length || snd.length) {
                         let computedMinH = 0;
