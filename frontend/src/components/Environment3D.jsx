@@ -1086,6 +1086,8 @@ function OsmModel({ bounds, refEn }) {
                         }
                     });
 
+                    const relationHoles = [];
+
                     // Process relations for multipolygon water (seas, bays, large lakes)
                     allWays.relations.forEach(rel => {
                         if (!rel.tags) return;
@@ -1174,6 +1176,10 @@ function OsmModel({ bounds, refEn }) {
                             if (chain.length < 3) return null;
                             return chain.map(g => unproject(g.lon, g.lat, sMinLon, sMinLat));
                         }).filter(Boolean);
+
+                        if (parsedHoles.length > 0) {
+                            relationHoles.push(...parsedHoles);
+                        }
 
                         chains.forEach(chain => {
                             if (chain.length < 3) return;
@@ -1448,6 +1454,25 @@ function OsmModel({ bounds, refEn }) {
                         if (!b.h || b.h.length === 0) b.h = globalOceanHoles;
                     });
 
+                    const checkPointInPoly = (point, vs) => {
+                        let x = point[0], y = point[1], inside = false;
+                        for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+                            let xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
+                            let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                            if (intersect) inside = !inside;
+                        }
+                        return inside;
+                    };
+
+                    const allLandHoles = [...globalOceanHoles, ...relationHoles];
+                    watr.forEach(w => {
+                        const matchingHoles = allLandHoles.filter(hole => {
+                            if (!w.p || w.p.length === 0 || !hole || hole.length === 0) return false;
+                            return checkPointInPoly(hole[0], w.p);
+                        });
+                        w.h = [...(w.h || []), ...matchingHoles];
+                    });
+
                     watr.push(...globalOceanPolygons);
                     watr.push(...localWaterBodies);
 
@@ -1691,6 +1716,10 @@ function OsmModel({ bounds, refEn }) {
                     if (ptInPoly([lx, lz], b.p)) {
                         isBuilding = true; bHeight = b.h; matchedBuilding = b; break;
                     }
+                }
+
+                if (isBuilding) {
+                    isWater = false;
                 }
 
                 // Priority 3: Road
