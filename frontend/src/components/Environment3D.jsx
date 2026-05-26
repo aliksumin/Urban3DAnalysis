@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v40_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v41_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1462,6 +1462,14 @@ function OsmModel({ bounds, refEn }) {
                     watr.push(...globalOceanPolygons);
                     watr.push(...localWaterBodies);
 
+                    // When CW boundary water cycles exist, their polygon shapes can have
+                    // gaps/concavities from coastline fragment geometry. Add a backup
+                    // ocean polygon covering the entire map to fill these gaps.
+                    // Building-validated hole matching will carve out islands properly.
+                    if (hasCwCycle) {
+                        watr.push({ p: [[0,0], [wVal,0], [wVal,dVal], [0,dVal], [0,0]], h: [], el: 0, minX: 0, maxX: wVal, minY: 0, maxY: dVal });
+                    }
+
                     const checkPointInPoly = (point, vs) => {
                         let x = point[0], y = point[1], inside = false;
                         for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
@@ -1512,37 +1520,6 @@ function OsmModel({ bounds, refEn }) {
                             });
                         }
                     });
-
-                    // === DIAGNOSTIC: Identify green patch source ===
-                    // Check 9 sample points across the map center area
-                    console.log(`[WATER-DIAG] Total water polygons: ${watr.length}`);
-                    for (let sy = 0.4; sy <= 0.7; sy += 0.15) {
-                        for (let sx = 0.3; sx <= 0.7; sx += 0.2) {
-                            const testX = wVal * sx;
-                            const testZ = dVal * sy;
-                            let foundWater = false;
-                            let foundHole = false;
-                            let matchedWaterIdx = -1;
-                            for (let wi = 0; wi < watr.length; wi++) {
-                                const w = watr[wi];
-                                if (testX < w.minX || testX > w.maxX || testZ < w.minY || testZ > w.maxY) continue;
-                                if (checkPointInPoly([testX, testZ], w.p)) {
-                                    foundWater = true;
-                                    matchedWaterIdx = wi;
-                                    if (w.h) {
-                                        for (let hole of w.h) {
-                                            if (checkPointInPoly([testX, testZ], hole)) { foundHole = true; break; }
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                            if (!foundWater || foundHole) {
-                                console.log(`[WATER-DIAG] NON-WATER at (${(sx*100).toFixed(0)}%, ${(sy*100).toFixed(0)}%): water=${foundWater}, inHole=${foundHole}, waterIdx=${matchedWaterIdx}`);
-                            }
-                        }
-                    }
-                    // === END DIAGNOSTIC ===
 
                     if (blds.length || hwys.length || watr.length || snd.length) {
                         let computedMinH = 0;
