@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v36_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v37_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1042,7 +1042,7 @@ function OsmModel({ bounds, refEn }) {
                                 if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
                                 if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
                             });
-                            hwys.push({ p: pts, ls, minX, maxX, minY, maxY });
+                            hwys.push({ p: pts, ls, minX, maxX, minY, maxY, bridge: !!(el.tags?.bridge && el.tags.bridge !== 'no') });
                         } else if (el.tags?.natural === 'beach' || el.tags?.natural === 'sand') {
                             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                             pts.forEach(p => {
@@ -1174,21 +1174,12 @@ function OsmModel({ bounds, refEn }) {
                         const parsedHoles = innerChains.map(chain => {
                             if (chain.length < 3) return null;
                             let pts = chain.map(g => unproject(g.lon, g.lat, sMinLon, sMinLat));
+                            // Only use naturally closed inner chains as holes.
+                            // Force-closing unclosed chains creates artificial edges
+                            // that carve triangle artifacts out of water.
                             const hf = pts[0], hl = pts[pts.length - 1];
                             const closeDist = Math.sqrt((hf[0] - hl[0]) ** 2 + (hf[1] - hl[1]) ** 2);
-                            if (closeDist > 1) {
-                                // Chain is unclosed — validate that closure makes sense
-                                let perimeter = 0;
-                                for (let pi = 0; pi < pts.length - 1; pi++) {
-                                    perimeter += Math.sqrt((pts[pi+1][0]-pts[pi][0])**2 + (pts[pi+1][1]-pts[pi][1])**2);
-                                }
-                                if (closeDist > perimeter * 0.15) {
-                                    // Gap is too large relative to chain length —
-                                    // closing would create a long artificial edge (triangle artifact)
-                                    return null;
-                                }
-                                pts.push([hf[0], hf[1]]);
-                            }
+                            if (closeDist > 1) return null;
                             return pts;
                         }).filter(Boolean);
 
@@ -1740,12 +1731,13 @@ function OsmModel({ bounds, refEn }) {
                 }
 
                 // Priority 3: Road
+                let isBridge = false;
                 if (!isBuilding) {
                     for (let h of cellHwys) {
                         if (lx < h.minX - 10 || lx > h.maxX + 10 || lz < h.minY - 10 || lz > h.maxY + 10) continue;
                         for (let i = 0; i < h.p.length - 1; i++) {
                             if (distToSegmentSquared([lx, lz], h.p[i], h.p[i + 1]) < 10) {
-                                isRoad = true; break;
+                                isRoad = true; isBridge = !!h.bridge; break;
                             }
                         }
                         if (isRoad) break;
@@ -1818,8 +1810,8 @@ function OsmModel({ bounds, refEn }) {
                         bEmi[bcIdx] = 0; bEmi[bcIdx+1] = 0; bEmi[bcIdx+2] = 0;
                         bcIdx += 3;
                     }
-                } else if (isRoad && !isWater) {
-                    // Only render road voxels on land, not over water
+                } else if (isRoad && (!isWater || isBridge)) {
+                    // Render road voxels on land and bridges over water
                     let rP_y = topY + hSize / 2 + 0.25;
                     setMatrix(rArr, rIdx, x, rP_y, z, currentVSize, 0.6, currentVSize);
                     rIdx += 16;
