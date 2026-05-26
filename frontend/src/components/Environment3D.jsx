@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v41_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v42_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1790,6 +1790,21 @@ function OsmModel({ bounds, refEn }) {
                         if (lx < s.minX || lx > s.maxX || lz < s.minY || lz > s.maxY) continue;
                         if (ptInPoly([lx, lz], s.p)) {
                             isSand = true; break;
+                        }
+                    }
+                }
+
+                // Post-classification artifact detection:
+                // If a voxel is terrain (no building/road/sand) but is inside a water
+                // polygon (ignoring holes), it's in a hole. If the cell has NO buildings,
+                // this is a spurious land strip artifact — force to water.
+                if (!isWater && !isBuilding && !isRoad && !isSand && cellBldgs.length === 0) {
+                    for (let wt of cellWater) {
+                        if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
+                        if (ptInPoly([lx, lz], wt.p)) {
+                            isWater = true;
+                            wtEl = wt.el || 0;
+                            break;
                         }
                     }
                 }
