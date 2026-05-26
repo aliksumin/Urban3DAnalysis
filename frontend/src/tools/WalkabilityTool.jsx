@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PanelSection, PanelFooter, Button, Slider, Metric } from '../ui';
-import { Target, Crosshair, BrainCircuit, Loader2, Route, Play, Square } from 'lucide-react';
+import { Target, Crosshair, BrainCircuit, Loader2, Route, Play, Square, X, MousePointer2 } from 'lucide-react';
 import { useStore } from '../components/Environment3D';
 
 export function WalkabilityInfrastructurePanel() {
@@ -381,5 +381,51 @@ ${JSON.stringify(promptData)}`;
                 </Button>
             </PanelFooter>
         </>
+    );
+}
+
+export function WalkabilityHUD() {
+    const { 
+        walkabilityActive, 
+        walkabilityAgentPos, 
+        setWalkabilityAgentPos, 
+        setWalkabilityActive, 
+        setWalkabilityConfig,
+        activeModelingTool
+    } = useStore();
+
+    if (!walkabilityActive || activeModelingTool) return null;
+
+    const handleCancel = () => {
+        setWalkabilityAgentPos(null);
+        setWalkabilityConfig({ walkabilityGraphNodes: [], walkabilityPaths: [], walkabilityArcs: [] });
+        setWalkabilityActive(false);
+    };
+
+    return (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+            <div className="bg-slate-900/95 backdrop-blur-md px-6 py-4 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.3)] border border-slate-700/50 text-white flex items-center gap-6">
+                <div className="flex flex-col">
+                    <div className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
+                        <MousePointer2 size={16} className="text-blue-400 animate-pulse" />
+                        Walkability Agent Deployment
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                        {walkabilityAgentPos 
+                            ? "Agent placed. Use Middle Mouse Click on terrain to move the agent." 
+                            : "Click Left Mouse Button on terrain to place the agent (or Middle Mouse Click)."}
+                    </div>
+                </div>
+                
+                <div className="h-8 w-px bg-slate-700"></div>
+
+                <button 
+                    onClick={handleCancel}
+                    className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded transition-colors text-xs font-bold uppercase"
+                >
+                    <X size={14} /> Cancel
+                </button>
+            </div>
+        </div>
     );
 }

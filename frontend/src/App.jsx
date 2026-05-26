@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Environment3D, { useStore, getDefaultFunctions } from './components/Environment3D';
 import MapSelectorModal from './components/MapSelectorModal';
 import { Navigation, Wind, Map as MapIcon, Layers, Settings, Save, FolderOpen, Download, Building2, Droplet, PaintBucket, Tag, Sun, Plus, BrainCircuit, PenTool, Route, MapPin, Trash2, Square, Folder, Activity, Wrench } from 'lucide-react';
-import WalkabilityTool, { WalkabilityInfrastructurePanel } from './tools/WalkabilityTool';
+import WalkabilityTool, { WalkabilityInfrastructurePanel, WalkabilityHUD } from './tools/WalkabilityTool';
 import WindTool from './tools/WindTool';
 import { ModelingHUD } from './tools/ModelingTool';
 import { Panel, PanelHeader, PanelSection, Button, Metric, Input } from './ui';
@@ -239,20 +239,20 @@ export default function App() {
 
       <div className="absolute top-4 left-4 z-20 flex gap-2 pointer-events-auto">
         <div className="relative">
-           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setFileMenuOpen(!fileMenuOpen); setModulesMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }}>
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-sans font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setFileMenuOpen(!fileMenuOpen); setModulesMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }}>
               <Folder size={16}/> File
            </button>
            {fileMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-48 overflow-hidden z-30">
-                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setMapModalOpen(true); setFileMenuOpen(false); }}><MapIcon size={14}/>Domain Extractor</button>
-                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { handleSaveScene(); setFileMenuOpen(false); }}><Save size={14}/>Save Scene</button>
-                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { fileInputRef.current?.click(); setFileMenuOpen(false); }}><FolderOpen size={14}/>Open Scene</button>
+                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { setMapModalOpen(true); setFileMenuOpen(false); }}><MapIcon size={14}/>Domain Extractor</button>
+                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { handleSaveScene(); setFileMenuOpen(false); }}><Save size={14}/>Save Scene</button>
+                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { fileInputRef.current?.click(); setFileMenuOpen(false); }}><FolderOpen size={14}/>Open Scene</button>
                 <div className="border-t border-slate-100 my-1"></div>
-                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2 text-blue-600" onClick={() => { setExportTriggerFlag(true); setFileMenuOpen(false); }}><Download size={14}/>Export GLB</button>
+                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2 text-blue-600" onClick={() => { setExportTriggerFlag(true); setFileMenuOpen(false); }}><Download size={14}/>Export GLB</button>
                 <div className="border-t border-slate-100 my-1"></div>
-                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setSettingsOpen(!isSettingsOpen); setActiveRightTab('settings'); setFileMenuOpen(false); }}><Settings size={14}/>Settings</button>
+                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { setSettingsOpen(!isSettingsOpen); setActiveRightTab('settings'); setFileMenuOpen(false); }}><Settings size={14}/>Settings</button>
                 <div className="border-t border-slate-100 my-1"></div>
-                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center justify-between w-full" onClick={() => { setShowDiagnostics(!showDiagnostics); setFileMenuOpen(false); }}>
+                <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center justify-between w-full" onClick={() => { setShowDiagnostics(!showDiagnostics); setFileMenuOpen(false); }}>
                     <div className="flex items-center gap-2"><Layers size={14}/>Diagnostics HUD</div>
                     <div className={`w-6 h-3 rounded-full transition-colors ${showDiagnostics ? 'bg-blue-500' : 'bg-slate-300'} relative`}>
                         <div className={`absolute top-0.5 left-0.5 w-2 h-2 rounded-full bg-white transition-transform ${showDiagnostics ? 'translate-x-3' : 'translate-x-0'}`}></div>
@@ -263,41 +263,41 @@ export default function App() {
         </div>
 
         <div className="relative">
-           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setModulesMenuOpen(!modulesMenuOpen); setFileMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }}>
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-sans font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setModulesMenuOpen(!modulesMenuOpen); setFileMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }}>
               <Activity size={16}/> Analysis Modules
            </button>
            {modulesMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-48 overflow-hidden z-30">
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('walkability'); setActiveRightTab('analysis'); useStore.getState().setWindSimActive(false); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Navigation size={14}/>Walkability Network</button>
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('wind'); setActiveRightTab('analysis'); useStore.getState().setWalkabilityActive(false); useStore.getState().setWindSimActive(true); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Wind size={14}/>Wind Analysis</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('walkability'); setActiveRightTab('analysis'); useStore.getState().setWindSimActive(false); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Navigation size={14}/>Walkability Network</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { setActiveTool('wind'); setActiveRightTab('analysis'); useStore.getState().setWalkabilityActive(false); useStore.getState().setWindSimActive(true); setModulesMenuOpen(false); setRightPanelMinimized(false); }}><Wind size={14}/>Wind Analysis</button>
              </div>
            )}
         </div>
 
         <div className="relative">
-           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setToolsMenuOpen(!toolsMenuOpen); setFileMenuOpen(false); setModulesMenuOpen(false); setLayersMenuOpen(false); }}>
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-sans font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setToolsMenuOpen(!toolsMenuOpen); setFileMenuOpen(false); setModulesMenuOpen(false); setLayersMenuOpen(false); }}>
               <Wrench size={16}/> Tools
            </button>
            {toolsMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-56 overflow-hidden z-30">
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('building'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><Building2 size={14}/>Place Building</button>
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('road'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><Route size={14}/>Draw Road</button>
-               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('poi'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><MapPin size={14}/>Place Function Node</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('building'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><Building2 size={14}/>Place Building</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('road'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><Route size={14}/>Draw Road</button>
+               <button className="px-4 py-2.5 text-left hover:bg-slate-50 text-xs font-sans font-medium text-slate-700 flex items-center gap-2" onClick={() => { useStore.getState().setActiveModelingTool('poi'); setToolsMenuOpen(false); useStore.getState().setTimelineRegime('after'); }}><MapPin size={14}/>Place Function Node</button>
              </div>
            )}
         </div>
 
         <div className="relative">
-           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setLayersMenuOpen(!layersMenuOpen); setFileMenuOpen(false); setModulesMenuOpen(false); setToolsMenuOpen(false); }}>
+           <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-sans font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setLayersMenuOpen(!layersMenuOpen); setFileMenuOpen(false); setModulesMenuOpen(false); setToolsMenuOpen(false); }}>
               <Layers size={16}/> Layers
            </button>
            {layersMenuOpen && (
              <div className="absolute top-full mt-1 left-0 bg-white border border-slate-200 rounded-lg shadow-lg flex flex-col w-48 overflow-hidden z-30 p-2 gap-2">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer px-2 py-1 hover:bg-slate-50 rounded">
+                <label className="flex items-center gap-2 text-xs font-sans font-medium text-slate-700 cursor-pointer px-2 py-1 hover:bg-slate-50 rounded">
                     <input type="checkbox" checked={showBuildings} onChange={(e) => setShowBuildings(e.target.checked)} className="rounded border-slate-300 text-blue-500 focus:ring-blue-500" />
                     Buildings
                 </label>
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer px-2 py-1 hover:bg-slate-50 rounded">
+                <label className="flex items-center gap-2 text-xs font-sans font-medium text-slate-700 cursor-pointer px-2 py-1 hover:bg-slate-50 rounded">
                     <input type="checkbox" checked={showRoads} onChange={(e) => setShowRoads(e.target.checked)} className="rounded border-slate-300 text-blue-500 focus:ring-blue-500" />
                     Roads
                 </label>
@@ -306,8 +306,8 @@ export default function App() {
         </div>
 
         <div className="flex bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-sm overflow-hidden p-1 gap-1">
-            <button className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${timelineRegime === 'before' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`} onClick={() => setTimelineRegime('before')}>Before</button>
-            <button className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${timelineRegime === 'after' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`} onClick={() => setTimelineRegime('after')}>After</button>
+            <button className={`px-3 py-1 rounded-md text-sm font-sans font-medium transition-colors ${timelineRegime === 'before' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100/80'}`} onClick={() => setTimelineRegime('before')}>Before</button>
+            <button className={`px-3 py-1 rounded-md text-sm font-sans font-medium transition-colors ${timelineRegime === 'after' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800 hover:bg-slate-100/80'}`} onClick={() => setTimelineRegime('after')}>After</button>
         </div>
       </div>
 
@@ -658,6 +658,7 @@ export default function App() {
          </div>
       </div>
       <ModelingHUD />
+      <WalkabilityHUD />
 
       <MapSelectorModal
         isOpen={isMapModalOpen}

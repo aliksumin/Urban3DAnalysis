@@ -564,7 +564,7 @@ function CollisionPlane({ w, d, bounds, getEl, minH, refEn }) {
             onPointerMove={(e) => {}} // Dummy listener to ensure R3F raycasting target inclusion
         >
             <planeGeometry ref={gRef} args={[w, d, 100, 100]} />
-            <meshBasicMaterial transparent={true} opacity={0} depthWrite={false} />
+            <meshBasicMaterial transparent={true} opacity={0} depthWrite={false} colorWrite={false} />
         </mesh>
     );
 }
@@ -607,7 +607,20 @@ function OsmModel({ bounds, refEn }) {
     }, [hwys, getEl, effCustomRoads]);
 
     useEffect(() => {
-        if (!roadGraph || !walkabilityAgentPos) return;
+        if (!roadGraph || !walkabilityAgentPos) {
+            // Clear stats to avoid rendering stale arcs/paths when no agent is active
+            if (useStore.getState().walkabilityGraphNodes.length > 0 || useStore.getState().walkabilityPaths.length > 0) {
+                setWalkabilityStats({
+                    walkabilityActiveNodes: 0,
+                    walkabilityTargetFulfill: 'N/A',
+                    walkabilityAvgDist: '--',
+                    walkabilityPaths: [],
+                    walkabilityGraphNodes: [],
+                    walkabilityArcs: []
+                });
+            }
+            return;
+        }
         const stats = computeWalkability(roadGraph, walkabilityAgentPos, walkabilityRadiusMeters);
         
         const reqFns = masterFunctions.filter(f => f.trackable).map(f => f.name.toLowerCase());
@@ -639,7 +652,7 @@ function OsmModel({ bounds, refEn }) {
         const activeTargets = new Set();
         const closestTargets = {};
 
-        // customPOIs is pulled fromeffCustomPOIs via the useStore destructured variables earlier
+        // customPOIs is pulled from effCustomPOIs via the useStore destructured variables earlier
         const evalBldgs = [...bldgs, ...effCustomBuildings, ...(effCustomPOIs || [])].filter(b => !effDeletedIds.includes(b.id));
 
         evalBldgs.forEach(b => {
@@ -670,13 +683,19 @@ function OsmModel({ bounds, refEn }) {
                             // Track only the CLOSEST instance of each function
                             const distToAgent = Math.hypot(bx - walkabilityAgentPos[0], by - walkabilityAgentPos[1]);
                             if (!closestTargets[fnKey] || distToAgent < closestTargets[fnKey].dist) {
+                                // Calculate actual top height elevation relative to local ground (which is minH)
+                                const targetHeight = b.isPOI && b.y !== undefined 
+                                    ? b.y 
+                                    : ((b.el !== undefined ? b.el : minH) - minH + (b.h || b.height || 0));
+
                                 closestTargets[fnKey] = {
                                     dist: distToAgent,
                                     arcData: {
                                         bid: b.id,
                                         name: mFn.name,
-                                        pos: [bx, minH + 50, -by],
-                                        color: mFn.color
+                                        pos: [bx, targetHeight, -by],
+                                        color: mFn.color,
+                                        isPOI: !!b.isPOI
                                     }
                                 };
                             }
@@ -711,11 +730,14 @@ function OsmModel({ bounds, refEn }) {
                         if (isTimeInRange(timeOfDay, mFn.defaultOpeningTime)) {
                             const targetB = bldgs.find(xb => xb.id === bid);
                             if (targetB) {
+                                const bBaseLocal = (targetB.el !== undefined ? targetB.el : minH) - minH;
+                                const bH = targetB.h || targetB.height || 0;
                                 newArcs.push({
                                     bid: bid,
                                     name: mFn.name,
-                                    pos: [(targetB.minX + targetB.maxX) / 2, minH + 50, -(targetB.minY + targetB.maxY) / 2],
-                                    color: mFn.color
+                                    pos: [(targetB.minX + targetB.maxX) / 2, bBaseLocal + bH, -(targetB.minY + targetB.maxY) / 2],
+                                    color: mFn.color,
+                                    isPOI: false
                                 });
                             }
                         }
@@ -744,7 +766,7 @@ function OsmModel({ bounds, refEn }) {
             walkabilityGraphNodes: stats.reachableNodes,
             walkabilityArcs: newArcs
         });
-    }, [walkabilityAgentPos, walkabilityRadiusMeters, roadGraph, masterFunctions, walkabilityAutoDistribute, timeOfDay, bldgs, customBuildings, buildingEdits, deletedBuildingIds]);
+    }, [walkabilityAgentPos, walkabilityRadiusMeters, roadGraph, masterFunctions, walkabilityAutoDistribute, timeOfDay, bldgs, customBuildings, customPOIs, buildingEdits, manualBuildingEdits, deletedBuildingIds]);
 
     const loadTerrainHeights = async (minLon, minLat, maxLon, maxLat) => {
         const zoom = 14;
@@ -1915,12 +1937,25 @@ function OsmModel({ bounds, refEn }) {
         if (buildingMaterial.userData?.uniforms) {
             buildingMaterial.userData.uniforms.uDarkness.value = darkness;
         }
+
+        // Dynamically update water color in-place without rebuilding the material (fixes hot-swapping compilation lag)
+        const frameDayFactor = Math.max(0, Math.min(1, Math.sin(((t - 6) / 24) * Math.PI * 2) * 3));
+        const dayColor = new THREE.Color("#1e88e5");
+        const nightColor = new THREE.Color("#0d1b2a"); // Deep navy blue
+        waterMaterial.color.copy(dayColor).lerp(nightColor, 1 - frameDayFactor);
+
+        // Dynamically update road emissive intensity in-place
+        roadMaterial.emissiveIntensity = 1.0 + (1.0 - frameDayFactor) * 2.0;
     });
 
 
-    const terrainMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#88cc99", roughness: 0.9, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
+    // Compute dynamic aesthetic factors
+    const dayFactor = Math.max(0, Math.min(1, Math.sin(((timeOfDay - 6) / 24) * Math.PI * 2) * 3));
+    const netColor = useMemo(() => new THREE.Color('#ff4d00').lerp(new THREE.Color('#0033ff'), dayFactor), [dayFactor]);
+
+    const terrainMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#388e3c", roughness: 0.9, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
     const buildingMaterial = useMemo(() => {
-        const mat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.3, flatShading: true, clippingPlanes: clipPlanes });
+        const mat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.9, metalness: 0.0, flatShading: true, clippingPlanes: clipPlanes });
         mat.userData.uniforms = { uDarkness: { value: 0.0 } };
         mat.onBeforeCompile = (shader) => {
             shader.uniforms.uDarkness = mat.userData.uniforms.uDarkness;
@@ -1970,10 +2005,10 @@ function OsmModel({ bounds, refEn }) {
                         float threshold = 1.0 - uDarkness * 0.9;
                         if (rnd > threshold) {
                             vec3 winColor = mix(vec3(1.0, 0.7, 0.3), vec3(0.9, 0.9, 1.0), random(id + 1.0));
-                            totalEmissiveRadiance += winColor * uDarkness * 3.0; // Use += to preserve existing emissive
-                            diffuseColor.rgb *= 0.1;
+                            totalEmissiveRadiance += winColor * uDarkness * 4.5; // Brighter window glow at night
+                            diffuseColor.rgb *= 0.5; // Soft dimming of windows
                         } else {
-                            diffuseColor.rgb *= clamp(1.0 - uDarkness, 0.1, 1.0);
+                            diffuseColor.rgb *= clamp(1.0 - uDarkness * 0.3, 0.7, 1.0); // Don't let walls go pitch black so they capture moonlight shadows
                         }
                     }
                 }
@@ -1982,15 +2017,11 @@ function OsmModel({ bounds, refEn }) {
         };
         return mat;
     }, [clipPlanes]);
-    const roadMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffd700", emissive: "#ffaa00", emissiveIntensity: 2.0, roughness: 0.2, metalness: 0.8, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
-    const sandMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#e6c280", roughness: 1.0, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
+    const roadMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#ffd700", emissive: "#ff5500", emissiveIntensity: 1.0, roughness: 0.5, metalness: 0.1, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
+    const sandMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: "#e5a93c", roughness: 1.0, flatShading: true, clippingPlanes: clipPlanes }), [clipPlanes]);
     const waterMaterial = useMemo(() => new THREE.MeshStandardMaterial({
-        color: "#66ccff", transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.8, normalMap: normals, clippingPlanes: clipPlanes
-    }), [normals, clipPlanes]);
-
-    // Compute dynamic aesthetic color for walkability representations
-    const dayFactor = Math.max(0, Math.min(1, Math.sin(((timeOfDay - 6) / 24) * Math.PI * 2) * 3));
-    const netColor = useMemo(() => new THREE.Color('#ff4d00').lerp(new THREE.Color('#0033ff'), dayFactor), [dayFactor]);
+        color: "#1e88e5", roughness: 0.15, metalness: 0.3, flatShading: true, clippingPlanes: clipPlanes
+    }), [clipPlanes]);
 
     const finalBldgsForWind = useMemo(() => {
         return [...bldgs, ...effCustomBuildings, ...(effCustomPOIs || [])].filter(b => !effDeletedIds.includes(b.id));
@@ -2103,7 +2134,9 @@ function OsmModel({ bounds, refEn }) {
                 <group name="Layer_Sand">
                     <InstancedVoxels data={sandData} material={sandMaterial} count={sandData.length / 16} vGeom={vGeom} />
                 </group>
-                <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} netColor={netColor} walkabilityAgentPos={walkabilityAgentPos} radiusMeters={useStore.getState().walkabilityRadiusMeters} />
+                {walkabilityActive && walkabilityAgentPos && (
+                    <IsochroneOverlay nodes={useStore.getState().walkabilityGraphNodes} w={w} d={d} minH={minH} refEn={refEn} getEl={getEl} cb={bounds} netColor={netColor} walkabilityAgentPos={walkabilityAgentPos} radiusMeters={useStore.getState().walkabilityRadiusMeters} />
+                )}
                 
                 {windSimRunning && (
                     <WindOverlay bounds={windSimBounds} buildings={finalBldgsForWind} minH={minH} fullW={w} fullD={d} refEn={refEn} />
@@ -2145,7 +2178,7 @@ function OsmModel({ bounds, refEn }) {
                         <QuadraticBezierLine 
                             key={`arc-${idx}`}
                             start={[walkabilityAgentPos[0], walkabilityAgentPos[2] + 15, -walkabilityAgentPos[1]]}
-                            end={[arc.pos[0], arc.pos[1] + 15, arc.pos[2]]}
+                            end={[arc.pos[0], arc.pos[1] + (arc.isPOI ? 5 : 10), arc.pos[2]]}
                             mid={midPt}
                             color={netColor}
                             lineWidth={2.5}
@@ -2203,6 +2236,8 @@ function DynamicLighting() {
     const dayOfYear = useStore(state => state.dayOfYear) || 80;
     const weatherClear = useStore(state => state.weatherClear);
     const bounds = useStore(state => state.currentBounds);
+    const cityW = useStore(state => state.cityW) || 800;
+    const cityD = useStore(state => state.cityD) || 800;
 
     const lat = bounds ? ((bounds[1] + bounds[3]) / 2) * Math.PI / 180 : 0;
     const decl = 23.44 * Math.PI / 180 * Math.sin(2 * Math.PI / 365 * (dayOfYear - 81));
@@ -2223,40 +2258,74 @@ function DynamicLighting() {
     const sunZ = Math.cos(azimuth) * Math.cos(elevation) * 1000;
 
     const sunPos = new THREE.Vector3(sunX, sunY, sunZ);
-    const hiddenSunPos = new THREE.Vector3(0, -1000, 0);
+
+    // Moonlight tracking (opposite of sun)
+    const moonElevation = -elevation;
+    const moonX = Math.sin(azimuth) * Math.cos(moonElevation) * 1000;
+    const moonY = Math.sin(moonElevation) * 1000;
+    const moonZ = -Math.cos(azimuth) * Math.cos(moonElevation) * 1000;
+    const moonPos = new THREE.Vector3(moonX, moonY, moonZ);
 
     const sunIntensity = isDay ? Math.pow(Math.max(0, Math.sin(elevation)), 0.5) * (0.3 + 0.7 * weatherClear) : 0;
-    const ambientInt = (0.2 + (isDay ? 0.6 * sunIntensity : 0.0)) * (weatherClear > 0.5 ? 1.0 : 0.7);
+    const moonIntensity = !isDay ? Math.pow(Math.max(0, Math.sin(moonElevation)), 0.5) * (0.3 + 0.7 * weatherClear) : 0;
+
+    // Ambient light higher for soft shadows & details
+    const ambientInt = isDay ? (0.55 + 0.25 * sunIntensity) : (0.2 + 0.1 * moonIntensity);
     
-    // Smooth transition from sunrise/sunset orange to noon white to midnight blue
-    const sunColor = isDay ? new THREE.Color('#ff8a66').lerp(new THREE.Color('#ffffff'), Math.min(1, Math.sin(elevation) * 4)) : new THREE.Color('#223355');
-    const fogColor = isDay ? new THREE.Color('#f0f5fa').lerp(new THREE.Color('#778899'), 1 - weatherClear) : new THREE.Color('#05070a');
+    // Smooth transition from sunrise/sunset to clean noon white
+    const sunColor = isDay ? new THREE.Color('#fff4eb').lerp(new THREE.Color('#ffffff'), Math.min(1, Math.sin(elevation) * 4)) : new THREE.Color('#223355');
+    const moonColor = new THREE.Color('#9bbade');
+    const ambientColor = isDay ? sunColor : new THREE.Color('#1b263b');
+
+    // Studio style background: light neutral warm gray during day, deep indigo-slate room during night
+    const fogColor = isDay ? new THREE.Color('#f4f4f6').lerp(new THREE.Color('#e2e5e9'), 1 - weatherClear) : new THREE.Color('#0a0e17');
+
+    // Dynamically calculate shadow camera frustum based on city size
+    const shadowSize = Math.max(cityW, cityD, 800);
+    const halfShadowSize = shadowSize / 2 + 100;
 
     return (
         <>
             <color attach="background" args={[fogColor]} />
-            <fog attach="fog" near={500} far={15000} color={fogColor} />
-            <ambientLight intensity={ambientInt} color={sunColor} />
-            {isDay && (
+            <fog attach="fog" near={shadowSize * 1.5} far={shadowSize * 5} color={fogColor} />
+            <ambientLight intensity={ambientInt} color={ambientColor} />
+            {isDay ? (
                 <directionalLight 
                     position={sunPos} 
-                    intensity={1.8 * sunIntensity} 
+                    intensity={1.3 * sunIntensity} 
                     color={sunColor} 
                     castShadow 
+                    shadow-mapSize={[4096, 4096]} 
+                    shadow-camera-left={-halfShadowSize} shadow-camera-right={halfShadowSize} 
+                    shadow-camera-top={halfShadowSize} shadow-camera-bottom={-halfShadowSize} 
+                    shadow-camera-near={10} shadow-camera-far={3000}
+                    shadow-bias={-0.0002} shadow-normalBias={0.02} 
+                />
+            ) : (
+                <directionalLight 
+                    position={moonPos} 
+                    intensity={0.45 * moonIntensity} 
+                    color={moonColor} 
+                    castShadow 
                     shadow-mapSize={[2048, 2048]} 
-                    shadow-camera-left={-1000} shadow-camera-right={1000} 
-                    shadow-camera-top={1000} shadow-camera-bottom={-1000} 
-                    shadow-bias={-0.001} shadow-normalBias={0.05} 
+                    shadow-camera-left={-halfShadowSize} shadow-camera-right={halfShadowSize} 
+                    shadow-camera-top={halfShadowSize} shadow-camera-bottom={-halfShadowSize} 
+                    shadow-camera-near={10} shadow-camera-far={3000}
+                    shadow-bias={-0.0002} shadow-normalBias={0.02} 
                 />
             )}
-            <directionalLight position={[-200, 200, -200]} intensity={isDay ? 0.3 * weatherClear : 0.1} color="#ffffff" />
-            <Sky distance={450000} sunPosition={isDay ? sunPos : hiddenSunPos} turbidity={10 - weatherClear * 8} rayleigh={isDay ? 1.5 : 0.1} mieCoefficient={0.005} mieDirectionalG={0.8} />
+            {/* Soft fixed fill light from the opposite direction to reveal detail in shadow areas */}
+            <directionalLight 
+                position={[-200, 300, -200]} 
+                intensity={isDay ? 0.3 * weatherClear : 0.1 * weatherClear} 
+                color="#ffffff" 
+            />
         </>
     );
 }
 
 function IconOverlay() {
-    const { iconDisplayMode, allBuildings, customBuildings, customPOIs, buildingEdits, masterFunctions, walkabilityArcs, cityW, cityD, deletedBuildingIds, timelineRegime, manualBuildingEdits } = useStore();
+    const { iconDisplayMode, allBuildings, customBuildings, customPOIs, buildingEdits, masterFunctions, walkabilityArcs, cityW, cityD, deletedBuildingIds, timelineRegime, manualBuildingEdits, walkabilityActive, walkabilityAgentPos } = useStore();
     
     const effCustomBuildings = timelineRegime === 'before' ? EMPTY_ARRAY : customBuildings;
     const effCustomPOIs = timelineRegime === 'before' ? EMPTY_ARRAY : customPOIs;
@@ -2293,7 +2362,13 @@ function IconOverlay() {
     const connectedBids = new Set(walkabilityArcs.map(a => a.bid));
 
     combinedList.forEach(b => {
-        if (iconDisplayMode === 'connected' && !connectedBids.has(b.id) && !b.isPOI) return;
+        // If walkability is active and the agent is placed, hide POIs/buildings that are not reachable (not in connectedBids)
+        if (walkabilityActive && walkabilityAgentPos) {
+            if (!connectedBids.has(b.id)) return;
+        } else {
+            // When agent is NOT placed, buildings/POIs are visible unless walkability is inactive and iconDisplayMode is explicitly 'connected'
+            if (iconDisplayMode === 'connected' && !walkabilityActive && !b.isPOI) return;
+        }
         
         let buildingFns = mergedBuildingEdits[b.id]?.functions;
         if (!buildingFns || buildingFns.length === 0) {
@@ -2574,7 +2649,7 @@ export default function Environment3D({ regionBounds, reliefEnabled }) {
             onPointerMissed={() => useStore.getState().setSelectedBuildingId(null)}
             gl={{ localClippingEnabled: true, antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true }} 
             camera={{ position: [0, 400, 800], fov: 35, near: 1, far: 20000 }} 
-            shadows
+            shadows={{ type: THREE.PCFSoftShadowMap }}
         >
             <SceneExporter />
             <DynamicLighting />
