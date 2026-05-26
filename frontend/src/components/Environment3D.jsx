@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v32_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v33_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1173,7 +1173,13 @@ function OsmModel({ bounds, refEn }) {
 
                         const parsedHoles = innerChains.map(chain => {
                             if (chain.length < 3) return null;
-                            return chain.map(g => unproject(g.lon, g.lat, sMinLon, sMinLat));
+                            let pts = chain.map(g => unproject(g.lon, g.lat, sMinLon, sMinLat));
+                            // Close unclosed inner chains so they work as proper hole polygons
+                            const hf = pts[0], hl = pts[pts.length - 1];
+                            if (Math.abs(hf[0] - hl[0]) > 1 || Math.abs(hf[1] - hl[1]) > 1) {
+                                pts.push([hf[0], hf[1]]);
+                            }
+                            return pts;
                         }).filter(Boolean);
 
                         if (parsedHoles.length > 0) {
@@ -1471,11 +1477,18 @@ function OsmModel({ bounds, refEn }) {
                     };
 
                     // Match ALL land holes to ALL water polygons via proper point-in-polygon
+                    // Check multiple sample points along each hole — if the first point
+                    // is on the polygon edge or outside due to bbox clipping, other points match.
                     const allLandHoles = [...globalOceanHoles, ...relationHoles];
                     watr.forEach(w => {
                         const matchingHoles = allLandHoles.filter(hole => {
                             if (!w.p || w.p.length === 0 || !hole || hole.length === 0) return false;
-                            return checkPointInPoly(hole[0], w.p);
+                            const sampleCount = Math.min(hole.length, 10);
+                            for (let si = 0; si < sampleCount; si++) {
+                                const idx = Math.floor(si * hole.length / sampleCount);
+                                if (checkPointInPoly(hole[idx], w.p)) return true;
+                            }
+                            return false;
                         });
                         w.h = [...(w.h || []), ...matchingHoles];
                     });
