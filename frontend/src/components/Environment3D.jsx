@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v30_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v31_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1077,11 +1077,10 @@ function OsmModel({ bounds, refEn }) {
                                     else unclosedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: [], minX, maxX, minY, maxY });
                                 } else if (isClosed || isClipped) {
                                     watr.push({ p: pts, ls, el: 0, isCoast: false, h: [], minX, maxX, minY, maxY });
-                                } else {
-                                    let closedPts = [...pts];
-                                    closedPts.push(pts[0]);
-                                    watr.push({ p: closedPts, ls: closedPts.map(p => [p[0], p[1]]), el: 0, isCoast: false, h: [], minX, maxX, minY, maxY });
                                 }
+                                // Unclosed, non-clipped water ways are skipped — they are partial
+                                // boundaries of large water bodies (sea/lagoon) extending beyond bbox.
+                                // Force-closing them creates giant garbage polygons that flood the map.
                             }
                         }
                     });
@@ -1186,6 +1185,11 @@ function OsmModel({ bounds, refEn }) {
                             let pts = chain.map(g => unproject(g.lon, g.lat, sMinLon, sMinLat));
                             let ls = chain.map(g => [g.lon, g.lat]);
 
+                            // Check if chain forms a closed polygon (first ≈ last point)
+                            const cFirst = chain[0];
+                            const cLast = chain[chain.length - 1];
+                            const chainClosed = (Math.abs(cFirst.lon - cLast.lon) < 0.0001 && Math.abs(cFirst.lat - cLast.lat) < 0.0001);
+
                             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                             pts.forEach(p => {
                                 if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
@@ -1207,10 +1211,15 @@ function OsmModel({ bounds, refEn }) {
                             });
 
                             if (isCoast) {
-                                if (isClosed) closedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: validHoles, minX, maxX, minY, maxY });
+                                if (chainClosed) closedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: validHoles, minX, maxX, minY, maxY });
                                 else unclosedCoasts.push({ p: pts, ls, el: 0, isCoast: true, h: validHoles, minX, maxX, minY, maxY });
                             } else {
-                                watr.push({ p: pts, ls, el: 0, isCoast: false, h: validHoles, minX, maxX, minY, maxY });
+                                // Only add closed water relation chains. Unclosed chains are partial
+                                // boundaries of large water bodies extending beyond bbox — using them
+                                // in ptInPoly produces random results that flood the map.
+                                if (chainClosed) {
+                                    watr.push({ p: pts, ls, el: 0, isCoast: false, h: validHoles, minX, maxX, minY, maxY });
+                                }
                             }
                         });
                     });
@@ -1336,9 +1345,19 @@ function OsmModel({ bounds, refEn }) {
                         const onBoundary = (pt) => (pt[0] <= 50.0 || pt[0] >= wVal - 50.0 || pt[1] <= 50.0 || pt[1] >= dVal - 50.0);
 
                         if (!onBoundary(first) || !onBoundary(last)) {
-                            // Errant floating lines inside continent snap shut locally
+                            // Interior coastline fragment — classify by signed area
                             coast.p.push(first);
-                            localWaterBodies.push(coast);
+                            let fragArea = 0;
+                            for (let fi = 0; fi < coast.p.length - 1; fi++) {
+                                fragArea += (coast.p[fi][0] * coast.p[fi+1][1] - coast.p[fi+1][0] * coast.p[fi][1]);
+                            }
+                            if (fragArea > 0) {
+                                // CCW = land hole
+                                globalOceanHoles.push(coast.p);
+                            } else {
+                                // CW = water body
+                                localWaterBodies.push(coast);
+                            }
                         } else {
                             endpoints.push({ type: 'first', idx, dist: perimeterDist(first), pt: getPAnchor(first), original: coast });
                             endpoints.push({ type: 'last', idx, dist: perimeterDist(last), pt: getPAnchor(last), original: coast });
@@ -1714,6 +1733,8 @@ function OsmModel({ bounds, refEn }) {
                         }
                         if (isRoad) break;
                     }
+                    // Roads are definitively land infrastructure — override spurious water
+                    if (isRoad) isWater = false;
                 }
 
                 // Priority 4: Sand/Beach
