@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v35_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v36_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1361,19 +1361,9 @@ function OsmModel({ bounds, refEn }) {
                         const onBoundary = (pt) => (pt[0] <= 50.0 || pt[0] >= wVal - 50.0 || pt[1] <= 50.0 || pt[1] >= dVal - 50.0);
 
                         if (!onBoundary(first) || !onBoundary(last)) {
-                            // Interior coastline fragment — classify by signed area
-                            coast.p.push(first);
-                            let fragArea = 0;
-                            for (let fi = 0; fi < coast.p.length - 1; fi++) {
-                                fragArea += (coast.p[fi][0] * coast.p[fi+1][1] - coast.p[fi+1][0] * coast.p[fi][1]);
-                            }
-                            if (fragArea > 0) {
-                                // CCW = land hole
-                                globalOceanHoles.push(coast.p);
-                            } else {
-                                // CW = water body
-                                localWaterBodies.push(coast);
-                            }
+                            // Interior coastline fragment — too incomplete to classify.
+                            // Force-closing creates long artificial edges (triangle artifacts).
+                            // Island holes come from relation inner members instead.
                         } else {
                             endpoints.push({ type: 'first', idx, dist: perimeterDist(first), pt: getPAnchor(first), original: coast });
                             endpoints.push({ type: 'last', idx, dist: perimeterDist(last), pt: getPAnchor(last), original: coast });
