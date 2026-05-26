@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v33_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v34_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1174,9 +1174,19 @@ function OsmModel({ bounds, refEn }) {
                         const parsedHoles = innerChains.map(chain => {
                             if (chain.length < 3) return null;
                             let pts = chain.map(g => unproject(g.lon, g.lat, sMinLon, sMinLat));
-                            // Close unclosed inner chains so they work as proper hole polygons
                             const hf = pts[0], hl = pts[pts.length - 1];
-                            if (Math.abs(hf[0] - hl[0]) > 1 || Math.abs(hf[1] - hl[1]) > 1) {
+                            const closeDist = Math.sqrt((hf[0] - hl[0]) ** 2 + (hf[1] - hl[1]) ** 2);
+                            if (closeDist > 1) {
+                                // Chain is unclosed — validate that closure makes sense
+                                let perimeter = 0;
+                                for (let pi = 0; pi < pts.length - 1; pi++) {
+                                    perimeter += Math.sqrt((pts[pi+1][0]-pts[pi][0])**2 + (pts[pi+1][1]-pts[pi][1])**2);
+                                }
+                                if (closeDist > perimeter * 0.3) {
+                                    // Gap is too large relative to chain length —
+                                    // closing would create a long artificial edge (triangle artifact)
+                                    return null;
+                                }
                                 pts.push([hf[0], hf[1]]);
                             }
                             return pts;
@@ -1750,8 +1760,9 @@ function OsmModel({ bounds, refEn }) {
                         }
                         if (isRoad) break;
                     }
-                    // Roads are definitively land infrastructure — override spurious water
-                    if (isRoad) isWater = false;
+                    // Roads only override water in building-dense areas (urban streets),
+                    // not over open water (bridges, ferry routes, vaporetto lines)
+                    if (isRoad && isWater && cellBldgs.length >= 3) isWater = false;
                 }
 
                 // Priority 4: Sand/Beach
