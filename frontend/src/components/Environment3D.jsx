@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v43_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v44_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1797,26 +1797,14 @@ function OsmModel({ bounds, refEn }) {
                 // Post-classification artifact detection:
                 // If a voxel is terrain (no building/road/sand) but is inside a water
                 // polygon (ignoring holes), it's in a hole. If there are NO buildings
-                // in this cell or adjacent cells, it's a spurious artifact — force to water.
-                if (!isWater && !isBuilding && !isRoad && !isSand) {
-                    let hasBldgsNearby = cellBldgs.length > 0;
-                    if (!hasBldgsNearby) {
-                        for (let dx = -1; dx <= 1 && !hasBldgsNearby; dx++) {
-                            for (let dz = -1; dz <= 1 && !hasBldgsNearby; dz++) {
-                                if (dx === 0 && dz === 0) continue;
-                                const adjBldgs = bldgsGrid.get((cx + dx) + "_" + (cz + dz));
-                                if (adjBldgs && adjBldgs.length > 0) hasBldgsNearby = true;
-                            }
-                        }
-                    }
-                    if (!hasBldgsNearby) {
-                        for (let wt of cellWatr) {
-                            if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
-                            if (ptInPoly([lx, lz], wt.p)) {
-                                isWater = true;
-                                wtEl = wt.el || 0;
-                                break;
-                            }
+                // AND no roads in this cell, it's a spurious artifact — force to water.
+                if (!isWater && !isBuilding && !isRoad && !isSand && cellBldgs.length === 0 && cellHwys.length === 0) {
+                    for (let wt of cellWatr) {
+                        if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
+                        if (ptInPoly([lx, lz], wt.p)) {
+                            isWater = true;
+                            wtEl = wt.el || 0;
+                            break;
                         }
                     }
                 }
