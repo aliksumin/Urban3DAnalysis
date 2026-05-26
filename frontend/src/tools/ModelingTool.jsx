@@ -1,31 +1,196 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useThree, useFrame } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber';
 import { useStore } from '../components/Environment3D';
 import * as THREE from 'three';
-import { Line, Html } from '@react-three/drei';
-import { Check, X, MousePointer2 } from 'lucide-react';
+import { Line } from '@react-three/drei';
+import { X, MousePointer2, Grid, Magnet } from 'lucide-react';
 
 export function ModelingLayer({ regionBounds, children }) {
-    const { activeModelingTool, drawTempPoints, setDrawTempPoints, customBuildings, setCustomBuildings, customRoads, setCustomRoads, customPOIs, setCustomPOIs, setActiveModelingTool } = useStore();
-    const { camera, raycaster, pointer } = useThree();
+    const { 
+        activeModelingTool, 
+        drawTempPoints, 
+        setDrawTempPoints, 
+        customBuildings, 
+        setCustomBuildings, 
+        customRoads, 
+        setCustomRoads, 
+        customPOIs, 
+        setCustomPOIs, 
+        setActiveModelingTool,
+        minH,
+        gridSnapEnabled,
+        vertexSnapEnabled
+    } = useStore();
+    const { camera, raycaster, pointer, gl } = useThree();
     const [previewPoint, setPreviewPoint] = useState(null);
 
+    // Hide system cursor over canvas when dropping POIs
+    useEffect(() => {
+        const glCanvas = gl?.domElement;
+        if (activeModelingTool === 'poi' && glCanvas) {
+            glCanvas.style.cursor = 'none';
+        } else if (glCanvas) {
+            glCanvas.style.cursor = 'default';
+        }
+        return () => {
+            if (glCanvas) glCanvas.style.cursor = 'default';
+        };
+    }, [activeModelingTool, gl]);
+
     const getIntersectPos = (e) => {
-        if (!e || !e.point) return null;
-        return [e.point.x, e.point.z, e.point.y];
+        if (!e) return null;
+        if (e.intersections && e.intersections.length > 0) {
+            // Find terrain collision plane first
+            const terrainIntersect = e.intersections.find(
+                intersect => intersect.object.name === 'terrainCollisionMesh' || intersect.object.name === 'platformBaseMesh'
+            );
+            if (terrainIntersect) {
+                return [terrainIntersect.point.x, terrainIntersect.point.z, terrainIntersect.point.y];
+            }
+            // Fallback to groundPlane
+            const groundIntersect = e.intersections.find(
+                intersect => intersect.object.name === 'groundPlane'
+            );
+            if (groundIntersect) {
+                return [groundIntersect.point.x, groundIntersect.point.z, groundIntersect.point.y];
+            }
+        }
+        if (e.point) {
+            return [e.point.x, e.point.z, e.point.y];
+        }
+        return null;
+    };
+
+    const getPointHeight = (p) => {
+        const { getEl, currentBounds, cityW, cityD } = useStore.getState();
+        const w = cityW, d = cityD;
+        const cb = currentBounds;
+        if (cb && getEl && w && d) {
+            const minLon = Math.min(cb[0], cb[2]);
+            const maxLon = Math.max(cb[0], cb[2]);
+            const minLat = Math.min(cb[1], cb[3]);
+            const maxLat = Math.max(cb[1], cb[3]);
+            
+            const lX = p[0] + w/2;
+            const lZ = d/2 - p[1];
+            
+            const lon = (lX / w) * (maxLon - minLon) + minLon;
+            const lat = (lZ / d) * (maxLat - minLat) + minLat;
+            const rawH = getEl(lon, lat) || 0;
+            return rawH - (minH || 0);
+        }
+        return 0;
+    };
+
+    const snapPoint = (pos) => {
+        if (!pos) return null;
+        const { cityW, cityD } = useStore.getState();
+        const w = cityW;
+        const d = cityD;
+        
+        let lx = pos[0] + w / 2;
+        let lz = d / 2 - pos[1];
+        
+        let snapped = false;
+        let snapX = lx;
+        let snapZ = lz;
+        let minD = 10; // 10-meter auto snapping range
+
+        const currentVertexSnapEnabled = useStore.getState().vertexSnapEnabled;
+
+        if (currentVertexSnapEnabled) {
+            // 1. Current drawing vertices (query latest store state to avoid closures)
+            const currentDrawTempPoints = useStore.getState().drawTempPoints;
+            currentDrawTempPoints.forEach(p => {
+                const px = p[0] + w / 2;
+                const pz = d / 2 - p[1];
+                const dist = Math.hypot(lx - px, lz - pz);
+                if (dist < minD) {
+                    minD = dist;
+                    snapX = px;
+                    snapZ = pz;
+                    snapped = true;
+                }
+            });
+
+            // 2. Custom building vertices
+            const currentCustomBuildings = useStore.getState().customBuildings;
+            if (!snapped) {
+                currentCustomBuildings.forEach(cb => {
+                    cb.points.forEach(p => {
+                        const dist = Math.hypot(lx - p[0], lz - p[1]);
+                        if (dist < minD) {
+                            minD = dist;
+                            snapX = p[0];
+                            snapZ = p[1];
+                            snapped = true;
+                        }
+                    });
+                });
+            }
+
+            // 3. Custom road vertices
+            const currentCustomRoads = useStore.getState().customRoads;
+            if (!snapped) {
+                currentCustomRoads.forEach(cr => {
+                    cr.points.forEach(p => {
+                        const dist = Math.hypot(lx - p[0], lz - p[1]);
+                        if (dist < minD) {
+                            minD = dist;
+                            snapX = p[0];
+                            snapZ = p[1];
+                            snapped = true;
+                        }
+                    });
+                });
+            }
+
+            // 4. Custom POIs
+            const currentCustomPOIs = useStore.getState().customPOIs;
+            if (!snapped) {
+                currentCustomPOIs.forEach(poi => {
+                    const dist = Math.hypot(lx - poi.x, lz - poi.z);
+                    if (dist < minD) {
+                        minD = dist;
+                        snapX = poi.x;
+                        snapZ = poi.z;
+                        snapped = true;
+                    }
+                });
+            }
+        }
+
+        // 5. Grid Snap
+        const currentGridSnapEnabled = useStore.getState().gridSnapEnabled;
+        if (!snapped && currentGridSnapEnabled) {
+            const gridSize = 5;
+            snapX = Math.round(lx / gridSize) * gridSize;
+            snapZ = Math.round(lz / gridSize) * gridSize;
+        }
+
+        const rx = snapX - w / 2;
+        const rz = d / 2 - snapZ;
+        const ry = getPointHeight([rx, rz]);
+
+        return [rx, rz, ry];
     };
 
     const handlePointerMove = (e) => {
+        const { activeModelingTool } = useStore.getState();
         if (!activeModelingTool) return;
         const pos = getIntersectPos(e);
-        if (pos) setPreviewPoint(pos);
+        if (pos) {
+            const snapped = snapPoint(pos);
+            setPreviewPoint(snapped);
+        }
     };
 
     const handlePointerUp = (e) => {
-        // No-op for now since POI dragging was removed
+        // No-op for now
     };
 
     const handleContextMenu = (e) => {
+        const { activeModelingTool, drawTempPoints, setDrawTempPoints, customBuildings, setCustomBuildings, customRoads, setCustomRoads, setActiveModelingTool } = useStore.getState();
         if (!activeModelingTool || activeModelingTool === 'poi') {
             setActiveModelingTool(null);
             setDrawTempPoints([]);
@@ -46,7 +211,6 @@ export function ModelingLayer({ regionBounds, children }) {
 
         if (activeModelingTool === 'building') {
             if (lPts.length < 3) {
-                // Must be a polygon
                 setActiveModelingTool(null);
                 setDrawTempPoints([]);
                 setPreviewPoint(null);
@@ -83,33 +247,40 @@ export function ModelingLayer({ regionBounds, children }) {
     };
 
     const handlePointerDown = (e) => {
+        const { activeModelingTool, drawTempPoints, setDrawTempPoints, customPOIs, setCustomPOIs, setActiveModelingTool } = useStore.getState();
         if (!activeModelingTool) return;
         e.stopPropagation();
         
-        if (e.button === 2) {
+        // Resolve click button safely across R3F and DOM native pointer models
+        const clickButton = e.button !== undefined ? e.button : e.nativeEvent?.button;
+
+        if (clickButton === 2) {
             handleContextMenu(e);
             return;
         }
 
-        if (e.button !== 0) return; // Only left click from here
+        if (clickButton !== 0) return; // Only trigger placements on left-click
         const pos = getIntersectPos(e);
         if (!pos) return;
+
+        const snapped = snapPoint(pos);
 
         if (activeModelingTool === 'poi') {
             const { cityW, cityD } = useStore.getState();
             const newPOI = {
                 id: 'poi_' + Date.now(),
-                x: pos[0] + cityW / 2,
-                z: cityD / 2 - pos[1],
-                y: pos[2],
+                x: snapped[0] + cityW / 2,
+                z: cityD / 2 - snapped[1],
+                y: snapped[2],
                 tags: { function: 'New Function' },
                 isPOI: true
             };
+            console.log('Placing custom POI:', newPOI);
             setCustomPOIs([...customPOIs, newPOI]);
             setActiveModelingTool(null);
             setDrawTempPoints([]);
         } else {
-            setDrawTempPoints([...drawTempPoints, pos]);
+            setDrawTempPoints([...drawTempPoints, snapped]);
         }
     };
 
@@ -120,27 +291,8 @@ export function ModelingLayer({ regionBounds, children }) {
     }
 
     const flatPoints = linePoints.map(p => {
-        let { getEl, currentBounds, cityW, cityD } = useStore.getState();
-        // The file Environment3D.jsx exports reproject, but ModelingTool.jsx relies on Environment3D.jsx,
-        // Since we cannot strictly import reproject here without a circular dependency risk (or we can just calculate it):
-        // (x / cityW) * (maxLon - minLon) + minLon
-        const w = cityW, d = cityD;
-        const cb = currentBounds;
-        let height = 0;
-        if (cb && getEl && w && d) {
-            const minLon = Math.min(cb[0], cb[2]);
-            const maxLon = Math.max(cb[0], cb[2]);
-            const minLat = Math.min(cb[1], cb[3]);
-            const maxLat = Math.max(cb[1], cb[3]);
-            
-            const lX = p[0] + w/2;
-            const lZ = d/2 - p[1];
-            
-            const lon = (lX / w) * (maxLon - minLon) + minLon;
-            const lat = (lZ / d) * (maxLat - minLat) + minLat;
-            height = getEl(lon, lat) || 0;
-        }
-        return new THREE.Vector3(p[0], height + 10, p[1]);
+        const height = getPointHeight(p);
+        return new THREE.Vector3(p[0], height + 2, p[1]);
     });
 
     return (
@@ -154,6 +306,7 @@ export function ModelingLayer({ regionBounds, children }) {
                 name="groundPlane" 
                 rotation={[-Math.PI/2, 0, 0]} 
                 position={[0, -100, 0]} 
+                onPointerMove={(e) => {}}
             >
                 <planeGeometry args={[100000, 100000]} />
                 <meshBasicMaterial transparent opacity={0} depthWrite={false} color="#ffffff" />
@@ -161,21 +314,43 @@ export function ModelingLayer({ regionBounds, children }) {
 
             {children}
 
+            {activeModelingTool === 'poi' && previewPoint && (
+                <group position={[previewPoint[0], previewPoint[2], previewPoint[1]]}>
+                    {/* A 3D Cone pointing down to represent the pin tip */}
+                    <mesh 
+                        position={[0, 4, 0]} 
+                        rotation={[Math.PI, 0, 0]} 
+                        raycast={() => null}
+                    >
+                        <coneGeometry args={[2, 8, 8]} />
+                        <meshBasicMaterial color="#3b82f6" transparent opacity={0.8} />
+                    </mesh>
+                    {/* A 3D Sphere at the top of the pin */}
+                    <mesh 
+                        position={[0, 8, 0]} 
+                        raycast={() => null}
+                    >
+                        <sphereGeometry args={[3, 16, 16]} />
+                        <meshBasicMaterial color="#3b82f6" transparent opacity={0.8} />
+                    </mesh>
+                </group>
+            )}
+
             {activeModelingTool && flatPoints.length > 1 && (
                 <Line
                     points={flatPoints}
                     color="#3b82f6"
                     lineWidth={3}
                     dashed={activeModelingTool === 'building'}
+                    raycast={() => null}
                 />
             )}
             
             {activeModelingTool && drawTempPoints.map((p, i) => {
-                let { getEl } = useStore.getState();
-                let height = getEl ? getEl(p[0], p[1]) || 0 : 0;
+                const height = getPointHeight(p);
                 return (
-                    <mesh key={i} position={[p[0], height + 10, p[1]]}>
-                        <sphereGeometry args={[8, 16, 16]} />
+                    <mesh key={i} position={[p[0], height + 2, p[1]]} raycast={() => null}>
+                        <sphereGeometry args={[4, 16, 16]} />
                         <meshBasicMaterial color="#ef4444" />
                     </mesh>
                 );
@@ -185,7 +360,15 @@ export function ModelingLayer({ regionBounds, children }) {
 }
 
 export function ModelingHUD() {
-    const { activeModelingTool, setActiveModelingTool, setDrawTempPoints } = useStore();
+    const { 
+        activeModelingTool, 
+        setActiveModelingTool, 
+        setDrawTempPoints, 
+        gridSnapEnabled, 
+        setGridSnapEnabled,
+        vertexSnapEnabled,
+        setVertexSnapEnabled
+    } = useStore();
 
     if (!activeModelingTool) return null;
 
@@ -198,14 +381,44 @@ export function ModelingHUD() {
                         {activeModelingTool === 'building' && "Draw Building Footprint"}
                         {activeModelingTool === 'road' && "Draw Road Network"}
                         {activeModelingTool === 'poi' && "Drop Function Node"}
+                        {activeModelingTool === 'walkability_route' && "Draw Custom Walkability Route"}
                     </div>
                     {activeModelingTool !== 'poi' ? (
-                        <div className="text-[10px] text-slate-400 mt-1">Left Click to place points. Double-Click to finish shape.</div>
+                        <div className="text-[10px] text-slate-400 mt-1">Left Click to place points. Double-Click or Right Click to finish.</div>
                     ) : (
                         <div className="text-[10px] text-slate-400 mt-1">Left Click anywhere to drop a node.</div>
                     )}
                 </div>
+                
                 <div className="h-8 w-px bg-slate-700"></div>
+
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setGridSnapEnabled(!gridSnapEnabled)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-all text-xs font-bold uppercase ${
+                            gridSnapEnabled 
+                                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' 
+                                : 'bg-slate-800 hover:bg-slate-750 text-slate-400 border border-transparent'
+                        }`}
+                        title="Snap cursor to a 5-meter grid"
+                    >
+                        <Grid size={14} /> Grid Snap
+                    </button>
+                    <button
+                        onClick={() => setVertexSnapEnabled(!vertexSnapEnabled)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-all text-xs font-bold uppercase ${
+                            vertexSnapEnabled 
+                                ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
+                                : 'bg-slate-800 hover:bg-slate-750 text-slate-400 border border-transparent'
+                        }`}
+                        title="Auto-snaps cursor to nearby vertices (10m range)"
+                    >
+                        <Magnet size={14} /> Vertex Snap
+                    </button>
+                </div>
+
+                <div className="h-8 w-px bg-slate-700"></div>
+
                 <button 
                     onClick={() => { setActiveModelingTool(null); setDrawTempPoints([]); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded transition-colors text-xs font-bold uppercase"

@@ -241,7 +241,13 @@ export const useStore = create(persist((set) => ({
     timelineRegime: 'after',
     setTimelineRegime: (val) => set({ timelineRegime: val }),
     manualBuildingEdits: {},
-    setManualBuildingEdits: (edits) => set((state) => ({ manualBuildingEdits: typeof edits === 'function' ? edits(state.manualBuildingEdits) : edits }))
+    setManualBuildingEdits: (edits) => set((state) => ({ manualBuildingEdits: typeof edits === 'function' ? edits(state.manualBuildingEdits) : edits })),
+    minH: 0,
+    setMinH: (val) => set({ minH: val }),
+    gridSnapEnabled: false,
+    setGridSnapEnabled: (val) => set({ gridSnapEnabled: val }),
+    vertexSnapEnabled: true,
+    setVertexSnapEnabled: (val) => set({ vertexSnapEnabled: val })
 }), {
     name: 'urban-settings-storage',
     partialize: (state) => ({
@@ -261,7 +267,9 @@ export const useStore = create(persist((set) => ({
         customPOIs: state.customPOIs,
         iconDisplayMode: state.iconDisplayMode,
         deletedBuildingIds: state.deletedBuildingIds,
-        manualBuildingEdits: state.manualBuildingEdits
+        manualBuildingEdits: state.manualBuildingEdits,
+        gridSnapEnabled: state.gridSnapEnabled,
+        vertexSnapEnabled: state.vertexSnapEnabled
     })
 }));
 
@@ -419,7 +427,7 @@ function PlatformBase({ w, d, refEn, minH, water }) {
     }, [refEn]);
 
     return (
-        <mesh receiveShadow castShadow position={[0, 0, 0]} material={customMaterial}>
+        <mesh name="platformBaseMesh" receiveShadow castShadow position={[0, 0, 0]} material={customMaterial} onPointerMove={(e) => {}}>
             <boxGeometry ref={gRef} args={[w, 6, d, 250, 1, 250]} />
         </mesh>
     );
@@ -521,6 +529,46 @@ function IsochroneOverlay({ nodes, w, d, minH, refEn, getEl, cb, netColor, walka
         </mesh>
     );
 }
+function CollisionPlane({ w, d, bounds, getEl, minH, refEn }) {
+    const gRef = useRef();
+
+    useEffect(() => {
+        if (!gRef.current) return;
+        const pos = gRef.current.attributes.position.array;
+        const cb = bounds;
+        if (!cb || !getEl) return;
+
+        const minLon = Math.min(cb[0], cb[2]);
+        const maxLon = Math.max(cb[0], cb[2]);
+        const minLat = Math.min(cb[1], cb[3]);
+        const maxLat = Math.max(cb[1], cb[3]);
+
+        for (let i = 0; i < pos.length; i += 3) {
+            const lx = pos[i] + w / 2;
+            const ly = d / 2 - pos[i + 1];
+            const [lon, lat] = reproject(lx, ly, cb[0], cb[1]);
+            const h = refEn ? getEl(lon, lat) || 0 : 0;
+            pos[i + 2] = Math.max(0, h - minH);
+        }
+        gRef.current.computeVertexNormals();
+        gRef.current.computeBoundingBox();
+        gRef.current.computeBoundingSphere();
+        gRef.current.attributes.position.needsUpdate = true;
+    }, [w, d, bounds, getEl, minH, refEn]);
+
+    return (
+        <mesh 
+            name="terrainCollisionMesh" 
+            rotation={[-Math.PI / 2, 0, 0]} 
+            position={[w / 2, 0, -d / 2]}
+            onPointerMove={(e) => {}} // Dummy listener to ensure R3F raycasting target inclusion
+        >
+            <planeGeometry ref={gRef} args={[w, d, 100, 100]} />
+            <meshBasicMaterial transparent={true} opacity={0} depthWrite={false} />
+        </mesh>
+    );
+}
+
 const EMPTY_ARRAY = [];
 
 function OsmModel({ bounds, refEn }) {
@@ -530,9 +578,8 @@ function OsmModel({ bounds, refEn }) {
     const [sand, setSand] = useState([]);
     const [w, setW] = useState(800);
     const [d, setD] = useState(800);
-    const [minH, setMinH] = useState(0);
 
-    const { getEl, timelineRegime, manualBuildingEdits, customBuildings, customRoads, customPOIs, deletedBuildingIds, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay, walkabilityCustomRoute } = useStore();
+    const { minH, setMinH, getEl, timelineRegime, manualBuildingEdits, customBuildings, customRoads, customPOIs, deletedBuildingIds, buildingEdits, buildingColorMode, solidColor, masterFunctions, setSelectedBuildingId, selectedBuildingId, setOsmStatus, setDiagnosticInfo, showDiagnostics, walkabilityActive, walkabilityAgentPos, walkabilityRadiusMeters, setWalkabilityStats, walkabilityPaths, setWalkabilityAgentPos, walkabilityAutoDistribute, setBuildingEdits, setBuildingColorMode, walkabilityTargetFulfill, walkabilityArcs, windSimActive, windSimRunning, windSimBounds, timeOfDay, walkabilityCustomRoute } = useStore();
     const buildingMeshRef = useRef(null);
     const [roadGraph, setRoadGraph] = useState(null);
 
@@ -2039,6 +2086,17 @@ function OsmModel({ bounds, refEn }) {
                     </mesh>
                 )}
 
+                {bounds && (
+                    <CollisionPlane 
+                        w={w} 
+                        d={d} 
+                        bounds={bounds} 
+                        getEl={getEl} 
+                        minH={minH} 
+                        refEn={refEn} 
+                    />
+                )}
+
                 <group name="Layer_Terrain">
                     <InstancedVoxels data={terrainData} material={terrainMaterial} count={terrainData.length / 16} vGeom={vGeom} />
                 </group>
@@ -2235,7 +2293,7 @@ function IconOverlay() {
     const connectedBids = new Set(walkabilityArcs.map(a => a.bid));
 
     combinedList.forEach(b => {
-        if (iconDisplayMode === 'connected' && !connectedBids.has(b.id)) return;
+        if (iconDisplayMode === 'connected' && !connectedBids.has(b.id) && !b.isPOI) return;
         
         let buildingFns = mergedBuildingEdits[b.id]?.functions;
         if (!buildingFns || buildingFns.length === 0) {
