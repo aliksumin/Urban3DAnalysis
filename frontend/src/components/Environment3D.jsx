@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v29_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v30_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1348,7 +1348,7 @@ function OsmModel({ bounds, refEn }) {
                     endpoints.sort((a, b) => a.dist - b.dist);
 
                     let used = new Set();
-                    let needsGlobalOcean = false;
+                    let hasCwCycle = false;
                     
                     endpoints.forEach((ep) => {
                         if (ep.type === 'last' && !used.has(ep.idx)) {
@@ -1407,45 +1407,25 @@ function OsmModel({ bounds, refEn }) {
                                     if (pt[1] < minY) minY = pt[1]; if (pt[1] > maxY) maxY = pt[1];
                                 });
 
-                                const pipTest = (point, vs) => {
-                                    let px = point[0], py = point[1], inside = false;
-                                    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-                                        let xi = vs[i][0], yi = vs[i][1], xj = vs[j][0], yj = vs[j][1];
-                                        let intersect = ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
-                                        if (intersect) inside = !inside;
-                                    }
-                                    return inside;
-                                };
-
-                                // Map Infrastructure Parity Discriminator
-                                // Human infrastructure exclusively exists on the Landmass. If the generated topological wrapper encompasses
-                                // a massive density of loaded buildings and roads, it is definitively the Continental Polygon.
-                                let buildingHits = 0;
-                                let objSample = Math.min(200, blds.length);
-                                for (let i = 0; i < objSample; i++) {
-                                    if (pipTest(blds[i].p[0], unifiedP)) buildingHits++;
+                                // Calculate signed area to determine orientation: CCW (Area > 0) = Land, CW (Area < 0) = Water
+                                let area = 0;
+                                for (let i = 0; i < unifiedP.length - 1; i++) {
+                                    area += (unifiedP[i][0] * unifiedP[i+1][1] - unifiedP[i+1][0] * unifiedP[i][1]);
                                 }
-                                let roadHits = 0;
-                                let hwySample = Math.min(200, hwys.length);
-                                for (let i = 0; i < hwySample; i++) {
-                                    if (pipTest(hwys[i].p[0], unifiedP)) roadHits++;
-                                }
-                                
-                                let totalS = objSample + hwySample;
-                                let landHits = buildingHits + roadHits;
-                                let landRatio = totalS > 0 ? (landHits / totalS) : 0;
 
-                                // Classify as landmass if it contains at least 1 building, more than 1 road, or matches landRatio > 0.01
-                                if (buildingHits > 0 || roadHits > 1 || landRatio > 0.01) {
-                                    needsGlobalOcean = true;
+                                if (area > 0) {
+                                    // CCW encloses Land
                                     globalOceanHoles.push(unifiedP);
                                 } else {
-                                    localWaterBodies.push({ p: unifiedP, h: globalOceanHoles, ls: cycleParts[0].ls, el: 0, minX, maxX, minY, maxY });
+                                    // CW encloses Water
+                                    hasCwCycle = true;
+                                    localWaterBodies.push({ p: unifiedP, h: [], ls: cycleParts[0].ls, el: 0, minX, maxX, minY, maxY });
                                 }
                             }
                         }
                     });
                     let globalOceanPolygons = [];
+                    let needsGlobalOcean = (globalOceanHoles.length > 0) && !hasCwCycle;
                     if (needsGlobalOcean) {
                         const massiveOcean = [[0,0], [wVal,0], [wVal,dVal], [0,dVal], [0,0]];
                         globalOceanPolygons.push({ p: massiveOcean, h: globalOceanHoles, el: 0, minX: 0, maxX: wVal, minY: 0, maxY: dVal });
