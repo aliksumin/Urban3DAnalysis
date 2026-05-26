@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v27_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v28_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1270,8 +1270,8 @@ function OsmModel({ bounds, refEn }) {
                         for (let i = 0; i < pts.length - 1; i++) {
                             area += (pts[i][0] * pts[i+1][1] - pts[i+1][0] * pts[i][1]);
                         }
-                        // Island traces CCW cartesian -> Area < 0 -> Hole
-                        if (area < 0) {
+                        // Island traces CCW cartesian -> Area > 0 -> Hole
+                        if (area > 0) {
                             globalOceanHoles.push(coast.p);
                         } else {
                             localWaterBodies.push(coast);
