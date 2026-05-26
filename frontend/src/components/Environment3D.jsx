@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v34_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v35_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1182,7 +1182,7 @@ function OsmModel({ bounds, refEn }) {
                                 for (let pi = 0; pi < pts.length - 1; pi++) {
                                     perimeter += Math.sqrt((pts[pi+1][0]-pts[pi][0])**2 + (pts[pi+1][1]-pts[pi][1])**2);
                                 }
-                                if (closeDist > perimeter * 0.3) {
+                                if (closeDist > perimeter * 0.15) {
                                     // Gap is too large relative to chain length —
                                     // closing would create a long artificial edge (triangle artifact)
                                     return null;
@@ -1828,7 +1828,8 @@ function OsmModel({ bounds, refEn }) {
                         bEmi[bcIdx] = 0; bEmi[bcIdx+1] = 0; bEmi[bcIdx+2] = 0;
                         bcIdx += 3;
                     }
-                } else if (isRoad) {
+                } else if (isRoad && !isWater) {
+                    // Only render road voxels on land, not over water
                     let rP_y = topY + hSize / 2 + 0.25;
                     setMatrix(rArr, rIdx, x, rP_y, z, currentVSize, 0.6, currentVSize);
                     rIdx += 16;
