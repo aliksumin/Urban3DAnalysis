@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v28_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v29_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1420,25 +1420,26 @@ function OsmModel({ bounds, refEn }) {
                                 // Map Infrastructure Parity Discriminator
                                 // Human infrastructure exclusively exists on the Landmass. If the generated topological wrapper encompasses
                                 // a massive density of loaded buildings and roads, it is definitively the Continental Polygon.
-                                let landHits = 0;
+                                let buildingHits = 0;
                                 let objSample = Math.min(200, blds.length);
                                 for (let i = 0; i < objSample; i++) {
-                                    if (pipTest(blds[i].p[0], unifiedP)) landHits++;
+                                    if (pipTest(blds[i].p[0], unifiedP)) buildingHits++;
                                 }
+                                let roadHits = 0;
                                 let hwySample = Math.min(200, hwys.length);
                                 for (let i = 0; i < hwySample; i++) {
-                                    if (pipTest(hwys[i].p[0], unifiedP)) landHits++;
+                                    if (pipTest(hwys[i].p[0], unifiedP)) roadHits++;
                                 }
                                 
                                 let totalS = objSample + hwySample;
+                                let landHits = buildingHits + roadHits;
                                 let landRatio = totalS > 0 ? (landHits / totalS) : 0;
 
-                                if (landRatio > 0.15) {
-                                    // wrapper structurally encompasses >15% of all human infrastructure! It IS the terrestrial Continent!
+                                // Classify as landmass if it contains at least 1 building, more than 1 road, or matches landRatio > 0.01
+                                if (buildingHits > 0 || roadHits > 1 || landRatio > 0.01) {
                                     needsGlobalOcean = true;
                                     globalOceanHoles.push(unifiedP);
                                 } else {
-                                    // wrapper contains virtually no infrastructure! It IS the flat Global Ocean!
                                     localWaterBodies.push({ p: unifiedP, h: globalOceanHoles, ls: cycleParts[0].ls, el: 0, minX, maxX, minY, maxY });
                                 }
                             }
