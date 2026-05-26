@@ -1799,7 +1799,7 @@ function OsmModel({ bounds, refEn }) {
                 // polygon (ignoring holes), it's in a hole. If the cell has NO buildings,
                 // this is a spurious land strip artifact — force to water.
                 if (!isWater && !isBuilding && !isRoad && !isSand && cellBldgs.length === 0) {
-                    for (let wt of cellWater) {
+                    for (let wt of cellWatr) {
                         if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
                         if (ptInPoly([lx, lz], wt.p)) {
                             isWater = true;
