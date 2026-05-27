@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v44_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v45_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1864,7 +1864,14 @@ function OsmModel({ bounds, refEn }) {
                     }
                 } else if (isRoad && (!isWater || isBridge)) {
                     // Render road voxels on land and bridges over water
-                    let rP_y = topY + hSize / 2 + 0.25;
+                    let rP_y;
+                    if (isBridge && isWater) {
+                        // Bridge over water: position above water surface with clearance
+                        let bridgeY = Math.floor(Math.max(0, (wtEl || rawEl) - minH + 3) / hSize) * hSize;
+                        rP_y = bridgeY + hSize / 2 + 0.25;
+                    } else {
+                        rP_y = topY + hSize / 2 + 0.25;
+                    }
                     setMatrix(rArr, rIdx, x, rP_y, z, currentVSize, 0.6, currentVSize);
                     rIdx += 16;
                 } else if (isSand) {
