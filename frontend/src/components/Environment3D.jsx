@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v46_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v47_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1469,7 +1469,7 @@ function OsmModel({ bounds, refEn }) {
                     // become holes via building-validated hole matching).
                     // Doesn't affect inland areas (no coastlines = no backup ocean).
                     if (hasCwCycle || endpoints.length > 0) {
-                        watr.push({ p: [[0,0], [wVal,0], [wVal,dVal], [0,dVal], [0,0]], h: [], el: 0, minX: 0, maxX: wVal, minY: 0, maxY: dVal });
+                        watr.push({ p: [[0,0], [wVal,0], [wVal,dVal], [0,dVal], [0,0]], h: [], el: 0, minX: 0, maxX: wVal, minY: 0, maxY: dVal, isBackup: true });
                     }
 
                     const checkPointInPoly = (point, vs) => {
@@ -1802,6 +1802,7 @@ function OsmModel({ bounds, refEn }) {
                 // AND no roads in this cell, it's a spurious artifact — force to water.
                 if (!isWater && !isBuilding && !isRoad && !isSand && cellBldgs.length === 0 && cellHwys.length === 0) {
                     for (let wt of cellWatr) {
+                        if (wt.isBackup) continue; // Skip backup ocean — it covers everything
                         if (lx < wt.minX || lx > wt.maxX || lz < wt.minY || lz > wt.maxY) continue;
                         if (ptInPoly([lx, lz], wt.p)) {
                             isWater = true;
