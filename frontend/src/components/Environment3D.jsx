@@ -836,7 +836,7 @@ function OsmModel({ bounds, refEn }) {
         setW(ext[0]); setD(ext[1]);
         useStore.getState().setCityDimensions(ext[0], ext[1]);
 
-        const b = `v45_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
+        const b = `v46_${bounds[1]},${bounds[0]},${bounds[3]},${bounds[2]}`;
 
         getFromCache(b).then(cached => {
             if (cached && (cached.blds?.length > 0 || cached.hwys?.length > 0 || cached.watr?.length > 0 || cached.snd?.length > 0)) {
@@ -1462,11 +1462,13 @@ function OsmModel({ bounds, refEn }) {
                     watr.push(...globalOceanPolygons);
                     watr.push(...localWaterBodies);
 
-                    // When CW boundary water cycles exist, their polygon shapes can have
-                    // gaps/concavities from coastline fragment geometry. Add a backup
-                    // ocean polygon covering the entire map to fill these gaps.
-                    // Building-validated hole matching will carve out islands properly.
-                    if (hasCwCycle) {
+                    // When coastlines exist (CW cycles or boundary endpoints), add a
+                    // backup ocean polygon covering the entire map to fill gaps.
+                    // For CW cycles: fills concavities in cycle polygon shapes.
+                    // For CCW-only cycles: provides water for bays/sea (CCW land cycles
+                    // become holes via building-validated hole matching).
+                    // Doesn't affect inland areas (no coastlines = no backup ocean).
+                    if (hasCwCycle || endpoints.length > 0) {
                         watr.push({ p: [[0,0], [wVal,0], [wVal,dVal], [0,dVal], [0,0]], h: [], el: 0, minX: 0, maxX: wVal, minY: 0, maxY: dVal });
                     }
 
