@@ -106,16 +106,20 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             ctx.rotate(-windRad);
             ctx.translate(-N/2, -N/2);
             
-            // Buildings are drawn pure white (255) representing Geometry
-            ctx.fillStyle = 'white';
-            ctx.beginPath();
+            // Buildings are drawn with grayscale intensity proportional to height.
+            // Fixed max height of 100m ensures consistent results across different areas.
+            const MAX_HEIGHT = 100;
             buildings.forEach(b => {
-                // Ensure only physical volumetric structures block wind, omitting flat landuse/poi ground plates
                 const isVolumetric = b.renderType === 'building' || String(b.id || "").startsWith('cbld') || (b.tags?.building && b.tags.building !== 'no');
                 if (!isVolumetric) return;
                 const pts = b.p || b.points;
                 if (!pts) return;
 
+                // Height-proportional intensity: short buildings = dark, tall = bright
+                const h = Math.min(b.h || 3, MAX_HEIGHT);
+                const intensity = Math.max(1, Math.floor((h / MAX_HEIGHT) * 255));
+                ctx.fillStyle = `rgb(${intensity},${intensity},${intensity})`;
+                ctx.beginPath();
                 pts.forEach((pt, idx) => {
                     const lX = pt[0];
                     const lY = pt[1];
@@ -126,8 +130,8 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
                     else ctx.lineTo(px, pz);
                 });
                 ctx.closePath();
+                ctx.fill();
             });
-            ctx.fill();
             
             ctx.restore(); // Ensure the rotation doesn't warp following state captures
             
@@ -136,14 +140,15 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             for (let z = 0; z < N; z++) {
                 for (let x = 0; x < N; x++) {
                     const localIdx = (z * N + x);
-                    // Check RED pixel channel out of [R, G, B, A] sequential imageData logic from canvas context
-                    const isBuilding = imgData[localIdx * 4] > 128;
+                    const pixelIntensity = imgData[localIdx * 4];
                     
-                    if (isBuilding) {
-                         // Impose perfect solid occlusion logic for PyTorch Convolution bounds
-                         floatData[0 * size + localIdx] = -1.0; // R: Block Geometry (Solid Black)
-                         floatData[1 * size + localIdx] = -1.0; // G: Zero Flow Representation
-                         floatData[2 * size + localIdx] = -1.0; // B: Zero Flow Representation
+                    if (pixelIntensity > 0) {
+                         // Continuous geometry channel: height-proportional obstruction
+                         // intensity 1 → -0.004 (barely visible), intensity 255 → -1.0 (full block)
+                         const geoValue = -(pixelIntensity / 255.0);
+                         floatData[0 * size + localIdx] = geoValue;
+                         floatData[1 * size + localIdx] = -1.0;
+                         floatData[2 * size + localIdx] = -1.0;
                     }
                 }
             }
