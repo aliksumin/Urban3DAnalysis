@@ -106,48 +106,63 @@ export default function WindOverlay({ bounds, buildings, buildingEdits, minH, fu
             ctx.rotate(-windRad);
             ctx.translate(-N/2, -N/2);
             
-            // Buildings are drawn with grayscale intensity proportional to height.
             // Fixed max height of 100m ensures consistent results across different areas.
             const MAX_HEIGHT = 100;
-            buildings.forEach(b => {
-                const isVolumetric = b.renderType === 'building' || String(b.id || "").startsWith('cbld') || (b.tags?.building && b.tags.building !== 'no');
-                if (!isVolumetric) return;
-                const pts = b.p || b.points;
-                if (!pts) return;
 
-                // Height-proportional intensity: short buildings = dark, tall = bright
-                // Use edited height if available, otherwise fall back to original b.h
+            // Helper: draw building footprints onto a canvas with the current rotation
+            const drawBuildings = (ctx, fillFn) => {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, N, N);
+                ctx.save();
+                ctx.translate(N/2, N/2);
+                ctx.rotate(-windRad);
+                ctx.translate(-N/2, -N/2);
+                buildings.forEach(b => {
+                    const isVolumetric = b.renderType === 'building' || String(b.id || "").startsWith('cbld') || (b.tags?.building && b.tags.building !== 'no');
+                    if (!isVolumetric) return;
+                    const pts = b.p || b.points;
+                    if (!pts) return;
+                    fillFn(ctx, b);
+                    ctx.beginPath();
+                    pts.forEach((pt, idx) => {
+                        const px = ((pt[0] - gwX) / worldW) * N;
+                        const pz = ((pt[1] - gwZ) / worldD) * N;
+                        if (idx === 0) ctx.moveTo(px, pz);
+                        else ctx.lineTo(px, pz);
+                    });
+                    ctx.closePath();
+                    ctx.fill();
+                });
+                ctx.restore();
+            };
+
+            // Canvas 1: Binary mask — all buildings solid white (for edge detection)
+            const maskCanvas = document.createElement('canvas');
+            maskCanvas.width = N; maskCanvas.height = N;
+            const maskCtx = maskCanvas.getContext('2d');
+            drawBuildings(maskCtx, (ctx) => { ctx.fillStyle = 'white'; });
+
+            // Canvas 2: Height map — each building with height-proportional intensity
+            const heightCanvas = document.createElement('canvas');
+            heightCanvas.width = N; heightCanvas.height = N;
+            const heightCtx = heightCanvas.getContext('2d');
+            drawBuildings(heightCtx, (ctx, b) => {
                 const editedH = buildingEdits?.[b.id]?.height;
                 const h = Math.min(editedH !== undefined ? editedH : (b.h || 3), MAX_HEIGHT);
                 const intensity = Math.max(1, Math.floor((h / MAX_HEIGHT) * 255));
                 ctx.fillStyle = `rgb(${intensity},${intensity},${intensity})`;
-                ctx.beginPath();
-                pts.forEach((pt, idx) => {
-                    const lX = pt[0];
-                    const lY = pt[1];
-                    const px = ((lX - gwX) / worldW) * N;
-                    const pz = ((lY - gwZ) / worldD) * N;
-                    
-                    if (idx === 0) ctx.moveTo(px, pz);
-                    else ctx.lineTo(px, pz);
-                });
-                ctx.closePath();
-                ctx.fill();
             });
-            
-            ctx.restore(); // Ensure the rotation doesn't warp following state captures
-            
-            const imgData = ctx.getImageData(0, 0, N, N).data;
+
+            const maskData = maskCtx.getImageData(0, 0, N, N).data;
+            const heightData = heightCtx.getImageData(0, 0, N, N).data;
             
             for (let z = 0; z < N; z++) {
                 for (let x = 0; x < N; x++) {
                     const localIdx = (z * N + x);
-                    const pixelIntensity = imgData[localIdx * 4];
-                    
-                    if (pixelIntensity > 0) {
-                         // Continuous geometry channel: height-proportional obstruction
-                         // intensity 1 → -0.004 (barely visible), intensity 255 → -1.0 (full block)
-                         const geoValue = -(pixelIntensity / 255.0);
+                    // Binary mask threshold eliminates anti-aliased edge artifacts
+                    if (maskData[localIdx * 4] > 128) {
+                         const heightIntensity = heightData[localIdx * 4] || 1;
+                         const geoValue = -(heightIntensity / 255.0);
                          floatData[0 * size + localIdx] = geoValue;
                          floatData[1 * size + localIdx] = -1.0;
                          floatData[2 * size + localIdx] = -1.0;
