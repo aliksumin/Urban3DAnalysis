@@ -22,7 +22,7 @@ function reproject(x, y, minLon, minLat) {
     return [lon, lat];
 }
 
-export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, refEn }) {
+export default function WindOverlay({ bounds, buildings, buildingEdits, minH, fullW, fullD, refEn }) {
     const { windSpeed, windDirection, windComfortMetric, setWalkabilityStats, getEl, currentBounds } = useStore();
     
 
@@ -116,7 +116,9 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
                 if (!pts) return;
 
                 // Height-proportional intensity: short buildings = dark, tall = bright
-                const h = Math.min(b.h || 3, MAX_HEIGHT);
+                // Use edited height if available, otherwise fall back to original b.h
+                const editedH = buildingEdits?.[b.id]?.height;
+                const h = Math.min(editedH !== undefined ? editedH : (b.h || 3), MAX_HEIGHT);
                 const intensity = Math.max(1, Math.floor((h / MAX_HEIGHT) * 255));
                 ctx.fillStyle = `rgb(${intensity},${intensity},${intensity})`;
                 ctx.beginPath();
@@ -195,7 +197,7 @@ export default function WindOverlay({ bounds, buildings, minH, fullW, fullD, ref
             submitGANPayload();
         }, 150); // 150ms structural UI debounce
         return () => clearTimeout(debounceId);
-    }, [windSpeed, windDirection, windComfortMetric, bounds, buildings]);
+    }, [windSpeed, windDirection, windComfortMetric, bounds, buildings, buildingEdits]);
 
     // Calculate High Fidelity topograph projection plane matching voxel intersections exactly
     const projectedGeometry = useMemo(() => {

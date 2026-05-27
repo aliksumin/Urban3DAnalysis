@@ -2243,7 +2243,7 @@ function OsmModel({ bounds, refEn }) {
                 )}
                 
                 {windSimRunning && (
-                    <WindOverlay bounds={windSimBounds} buildings={finalBldgsForWind} minH={minH} fullW={w} fullD={d} refEn={refEn} />
+                    <WindOverlay bounds={windSimBounds} buildings={finalBldgsForWind} buildingEdits={mergedBuildingEdits} minH={minH} fullW={w} fullD={d} refEn={refEn} />
                 )}
 
                 <group visible={useStore((state)=>state.showBuildings)} name="Layer_Buildings">
