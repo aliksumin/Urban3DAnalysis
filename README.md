@@ -31,7 +31,7 @@ To get the app fully running from scratch:
 
 3. **Launch the Application**
    Once installation is finished, double-click `run.bat`. 
-   This automatically boots the PyTorch/FastAPI backend on Port 8000 and the Vite/React UI on Port 5173, instantly syncing them together and opening your browser.
+   This automatically boots the PyTorch/FastAPI backend (default Port 8005, auto-switches if occupied) and the Vite/React UI on Port 5173, instantly syncing them together and opening your browser.
 
 ---
 
