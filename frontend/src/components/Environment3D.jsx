@@ -12,6 +12,7 @@ import {
     Leaf, Scale, Music, SquarePlay, Theater, HelpCircle
 } from 'lucide-react';
 import { buildRoadGraph, computeWalkability } from '../utils/walkabilityGraph';
+import { getBackendURL } from '../utils/backend';
 import WindOverlay from './WindOverlay';
 import { ModelingLayer } from '../tools/ModelingTool';
 extend({ Water });
@@ -2725,7 +2726,7 @@ function AnimationPusher() {
                 const b64 = canvas.toDataURL("image/png");
 
                 try {
-                    await fetch(`http://${window.location.hostname}:8005/api/save_frame`, {
+                    await fetch(`${getBackendURL()}/api/save_frame`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({

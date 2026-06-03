@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import { useStore } from './Environment3D';
+import { getBackendURL } from '../utils/backend';
 import pako, { ungzip } from 'pako';
 
 // Raw Base64 string encoding for typed arrays
@@ -150,7 +151,7 @@ export default function WindOverlay({ bounds, buildings, buildingEdits, minH, fu
             setWalkabilityStats({ walkabilityAvgDist: `Transmitting Tensor API...` });
 
             // Fire local python surrogate REST HTTP node
-            const response = await fetch(`http://${window.location.hostname}:8005/predict`, {
+            const response = await fetch(`${getBackendURL()}/predict`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ data_b64: b64, wind_speed: windSpeed, comfort_metric: windComfortMetric })

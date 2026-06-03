@@ -29,8 +29,28 @@ if not exist "model.onnx" (
 )
 echo.
 
-echo Starting Microclimate Python Backend (Port 8000)...
-start "Eddy3D GAN Engine" /D "%~dp0backend" cmd /c "uv.exe run uvicorn api:app --host 0.0.0.0 --port 8000 --reload"
+REM ── Find a free port for the backend, starting at 8005 ──
+set BACKEND_PORT=8005
+
+:find_port
+netstat -aon 2>nul | findstr /R ":%BACKEND_PORT% " | findstr "LISTENING" >nul 2>&1
+if !ERRORLEVEL! EQU 0 (
+    echo Port !BACKEND_PORT! is occupied, trying next...
+    set /a BACKEND_PORT+=1
+    if !BACKEND_PORT! GTR 8099 (
+        echo ERROR: Could not find a free port in range 8005-8099.
+        pause
+        exit /b 1
+    )
+    goto :find_port
+)
+echo Backend will use port !BACKEND_PORT!
+
+REM ── Write the port into a Vite env file so the frontend picks it up ──
+echo VITE_BACKEND_PORT=!BACKEND_PORT!> "%~dp0frontend\.env.local"
+
+echo Starting Microclimate Python Backend (Port !BACKEND_PORT!)...
+start "Eddy3D GAN Engine" /D "%~dp0backend" cmd /c "uv.exe run uvicorn api:app --host 0.0.0.0 --port !BACKEND_PORT! --reload"
 
 echo Starting Web Interface (Port 5173)...
 timeout /t 2 /nobreak >nul
