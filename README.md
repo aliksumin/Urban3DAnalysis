@@ -10,6 +10,10 @@ This platform evaluates structural walkability constraints and computational flu
 
 We have designed this repository to be completely self-contained. It uses a portable Python package manager (`uv`), so **you do not even need to have Python installed on your system!**
 
+### Prerequisites
+
+- **[Node.js](https://nodejs.org/) (LTS recommended)** — required for the frontend build tooling. Download and install it before running the installer. The script will check for it and show a helpful message if it's missing.
+
 To get the app fully running from scratch:
 
 1. **Clone the Repository**
