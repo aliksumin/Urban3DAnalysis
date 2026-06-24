@@ -397,13 +397,15 @@ export class OnnxWindEngine {
     }
 
     async _doInit(onProgress) {
-        // Configure ONNX Runtime WASM paths relative to the app's base URL
-        ort.env.wasm.wasmPaths = import.meta.env.BASE_URL;
+        // Load WASM files from CDN — avoids broken dynamic import paths
+        // when deployed to a subdirectory (e.g., GitHub Pages /Urban3DAnalysis/)
+        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/';
 
         // GitHub Pages (and most static hosts) don't serve COOP/COEP headers,
         // so SharedArrayBuffer is unavailable → force single-threaded WASM
         if (typeof SharedArrayBuffer === 'undefined') {
             ort.env.wasm.numThreads = 1;
+            ort.env.wasm.proxy = false;
         }
 
         // Build the inverse turbo LUT in background while model loads

@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PanelSection, PanelFooter, Button, Slider, Switch, Metric } from '../ui';
-import { Wind, Play, Square } from 'lucide-react';
+import { Wind, Play, Square, Clipboard, Check } from 'lucide-react';
 import { useStore } from '../components/Environment3D';
 
 export default function WindTool({ regionBounds }) {
+    const [copied, setCopied] = useState(false);
     const { 
         windSpeed, setWindSpeed, 
         windDirection, setWindDirection, 
@@ -100,7 +101,27 @@ export default function WindTool({ regionBounds }) {
             <PanelSection title="Simulation Data" className="flex-1">
                 <div className="flex flex-col gap-1">
                     <Metric label="Status" value={windSimRunning ? (walkabilityAvgDist?.includes?.('Predict') ? "COMPLETED" : "COMPUTING") : "AWAITING COMPUTE"} highlight={windSimRunning} />
-                    <Metric label="Grid Memory" value={windSimRunning ? walkabilityAvgDist : "--"} />
+                    <div className="flex justify-between items-center py-1.5">
+                        <span className="text-slate-500 text-[11px] font-medium">Grid Memory</span>
+                        <div className="flex items-center gap-1 min-w-0 ml-2">
+                            <span className={`font-mono text-xs text-right whitespace-nowrap overflow-hidden text-ellipsis ${walkabilityAvgDist?.includes?.('Error') ? 'text-red-500' : 'text-slate-700'}`}>
+                                {windSimRunning ? walkabilityAvgDist : "--"}
+                            </span>
+                            {windSimRunning && walkabilityAvgDist?.includes?.('Error') && (
+                                <button
+                                    className="flex-none p-0.5 rounded hover:bg-slate-100 transition-colors"
+                                    title="Copy error text"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(walkabilityAvgDist);
+                                        setCopied(true);
+                                        setTimeout(() => setCopied(false), 2000);
+                                    }}
+                                >
+                                    {copied ? <Check size={12} className="text-green-500" /> : <Clipboard size={12} className="text-slate-400" />}
+                                </button>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </PanelSection>
 

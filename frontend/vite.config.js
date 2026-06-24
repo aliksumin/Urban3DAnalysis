@@ -7,8 +7,5 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss()
-  ],
-  optimizeDeps: {
-    exclude: ['onnxruntime-web']
-  }
+  ]
 })
