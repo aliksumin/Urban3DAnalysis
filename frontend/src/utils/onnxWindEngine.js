@@ -20,7 +20,7 @@ import { getBackendURL } from './backend';
 // Configuration
 // ---------------------------------------------------------------------------
 const MODEL_URL =
-    'https://huggingface.co/SustainableUrbanSystemsLab/UrbanWind-GAN/resolve/main/GAN-21-05-2023-23-Generative.onnx';
+    'https://huggingface.co/SustainableUrbanSystemsLab/Yel-1.0/resolve/main/Yel.onnx';
 const DB_NAME = 'urban-wind-model-cache';
 const DB_STORE = 'models';
 const DB_KEY = 'gan-model-v1';
