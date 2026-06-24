@@ -81,7 +81,7 @@ export default function MapSelectorModal({ isOpen, onClose, onRegionSelect }) {
     });
     const [reliefEnabled, setReliefEnabled] = useState(() => {
         const saved = localStorage.getItem('urban_relief');
-        return saved ? JSON.parse(saved) : false;
+        return saved ? JSON.parse(saved) : true;
     });
     const initialCenter = useMemo(() => [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2], [bounds]);
 

@@ -9,7 +9,7 @@ import { Panel, PanelHeader, PanelSection, Button, Metric, Input } from './ui';
 
 export default function App() {
   const [regionBounds, setRegionBounds] = useState(null);
-  const [reliefEnabled, setReliefEnabled] = useState(false);
+  const [reliefEnabled, setReliefEnabled] = useState(true);
   const [isMapModalOpen, setMapModalOpen] = useState(true);
   const [activeTool, setActiveTool] = useState(null);
   const [activeRightTab, setActiveRightTab] = useState(null);
