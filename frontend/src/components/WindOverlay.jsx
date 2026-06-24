@@ -200,8 +200,8 @@ export default function WindOverlay({ bounds, buildings, buildingEdits, minH, fu
             
         } catch (err) {
             console.error("GAN Request Failed: ", err);
-            setFetchError("API Offline or Unreachable.");
-            setWalkabilityStats({ walkabilityAvgDist: `API Error: Retry` });
+            setFetchError(err.message || "Unknown error");
+            setWalkabilityStats({ walkabilityAvgDist: `Error: ${err.message || 'Unknown'}` });
         } finally {
             setIsFetching(false);
         }

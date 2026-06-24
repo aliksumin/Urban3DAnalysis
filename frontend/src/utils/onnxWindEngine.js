@@ -400,6 +400,12 @@ export class OnnxWindEngine {
         // Configure ONNX Runtime WASM paths relative to the app's base URL
         ort.env.wasm.wasmPaths = import.meta.env.BASE_URL;
 
+        // GitHub Pages (and most static hosts) don't serve COOP/COEP headers,
+        // so SharedArrayBuffer is unavailable → force single-threaded WASM
+        if (typeof SharedArrayBuffer === 'undefined') {
+            ort.env.wasm.numThreads = 1;
+        }
+
         // Build the inverse turbo LUT in background while model loads
         const lutPromise = new Promise((resolve) => {
             setTimeout(() => { buildInverseTurboLUT(); resolve(); }, 0);
@@ -432,11 +438,11 @@ export class OnnxWindEngine {
             cacheModel(modelBuffer).catch(() => {});
         }
 
-        // Create ONNX inference session with progressive enhancement
+        // Create ONNX inference session — WASM backend only (most reliable for static hosting)
         if (onProgress) onProgress(100, 'Initializing ONNX Runtime...');
 
         this.session = await ort.InferenceSession.create(modelBuffer, {
-            executionProviders: ['webgpu', 'wasm'],
+            executionProviders: ['wasm'],
         });
 
         this.inputName = this.session.inputNames[0];
