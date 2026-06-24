@@ -3,6 +3,7 @@ import { PanelSection, PanelFooter, Button, Slider, Metric } from '../ui';
 import { Target, Crosshair, BrainCircuit, Loader2, Route, Play, Square, X, MousePointer2 } from 'lucide-react';
 import { useStore } from '../components/Environment3D';
 import { getBackendURL } from '../utils/backend';
+import { checkBackendAvailable } from '../utils/onnxWindEngine';
 
 export function WalkabilityInfrastructurePanel() {
     const { walkabilityArcs, walkabilityAgentPos, timeOfDay, masterFunctions, isAnimatingRoute, setAnimatingRoute } = useStore();
@@ -60,7 +61,14 @@ export function WalkabilityInfrastructurePanel() {
 export default function WalkabilityTool({ regionBounds }) {
     const [radius, setRadius] = useState(15);
     const [speed, setSpeed] = useState(4.0);
-    const { walkabilityActive, setWalkabilityActive, setWalkabilityRadiusMeters, walkabilityActiveNodes, walkabilityTargetFulfill, walkabilityAvgDist, aiProcessing, setAiProcessing, setAiProgressText, aiAbortController, setAiAbortController } = useStore();
+    const { walkabilityActive, setWalkabilityActive, setWalkabilityRadiusMeters, walkabilityActiveNodes, walkabilityTargetFulfill, walkabilityAvgDist, aiProcessing, setAiProcessing, setAiProgressText, aiAbortController, setAiAbortController, backendAvailable, setBackendAvailable } = useStore();
+
+    // Check backend availability once on mount for demo mode detection
+    useEffect(() => {
+        if (backendAvailable === null) {
+            checkBackendAvailable().then(available => setBackendAvailable(available));
+        }
+    }, []);
 
     useEffect(() => {
         const maxDistMeters = (speed * 1000 / 60) * radius;
@@ -316,6 +324,7 @@ ${JSON.stringify(promptData)}`;
                 </div>
             </PanelSection>
 
+            {backendAvailable !== false && (
             <PanelSection title="AI Parameterization" className="mt-2">
                 <div className="flex flex-col gap-3 text-xs text-slate-500">
                     <p className="leading-snug">Generate functional assignments natively via semantic inference over the OpenStreetMap tag space.</p>
@@ -333,6 +342,7 @@ ${JSON.stringify(promptData)}`;
                     )}
                 </div>
             </PanelSection>
+            )}
 
             <PanelSection title="Network Diagnostic" className="flex-1 mt-2">
                 <div className="flex flex-col gap-1">

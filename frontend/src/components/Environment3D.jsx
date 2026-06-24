@@ -248,7 +248,9 @@ export const useStore = create(persist((set) => ({
     gridSnapEnabled: false,
     setGridSnapEnabled: (val) => set({ gridSnapEnabled: val }),
     vertexSnapEnabled: true,
-    setVertexSnapEnabled: (val) => set({ vertexSnapEnabled: val })
+    setVertexSnapEnabled: (val) => set({ vertexSnapEnabled: val }),
+    backendAvailable: null,
+    setBackendAvailable: (val) => set({ backendAvailable: val })
 }), {
     name: 'urban-settings-storage',
     partialize: (state) => ({
