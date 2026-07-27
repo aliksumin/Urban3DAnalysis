@@ -20,7 +20,28 @@ export default function App() {
   const [layersMenuOpen, setLayersMenuOpen] = useState(false);
   const [isRightPanelMinimized, setRightPanelMinimized] = useState(false);
   const [isWalkabilityMinimized, setWalkabilityMinimized] = useState(false);
-  const [isEnvMinimized, setEnvMinimized] = useState(false);
+  // On a phone the floating panels cover the 3D view they are meant to
+  // annotate, so Environment Conditions starts collapsed to its header there.
+  // Read once at mount rather than tracked live: this is only an initial
+  // state, and re-evaluating it on resize would fight the user's own toggling.
+  const [isEnvMinimized, setEnvMinimized] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  );
+  // The right-hand panel takes its width and height from inline styles and
+  // from a size persisted in localStorage. Both are desktop figures — a saved
+  // 800px width, or the 320px minimum, overflow a 375px phone — so its
+  // geometry is chosen from this flag rather than applied unconditionally.
+  // Tracked live, so rotating the device re-evaluates it.
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const onChange = e => setIsNarrow(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const fileInputRef = useRef(null);
 
   const { selectedBuildingId, buildingEdits, setBuildingEdits, allBuildings, buildingColorMode, setBuildingColorMode, loadSceneConfig, setSelectedBuildingId, solidColor, setSolidColor, masterFunctions, setMasterFunctions, aiModel, setAiModel, aiApiKey, setAiApiKey, osmStatus, showDiagnostics, setShowDiagnostics, timeOfDay, setTimeOfDay, dayOfYear, setDayOfYear, weatherClear, setWeatherClear, aiProgressText, googlePlacesKey, setGooglePlacesKey, amapApiKey, setAmapApiKey, useGooglePlaces, setUseGooglePlaces, useOvertureMaps, setUseOvertureMaps, timelineRegime, setTimelineRegime, manualBuildingEdits, setManualBuildingEdits, walkabilityArcs, walkabilityAgentPos, customBuildings, customPOIs, deletedBuildingIds, isAnimatingRoute, showBuildings, setShowBuildings, showRoads, setShowRoads, setExportTriggerFlag } = useStore();
@@ -237,7 +258,11 @@ export default function App() {
 
       {(fileMenuOpen || modulesMenuOpen || toolsMenuOpen || layersMenuOpen) && <div className="fixed inset-0 z-10" onClick={() => { setFileMenuOpen(false); setModulesMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }} />}
 
-      <div className="absolute top-4 left-4 z-20 flex gap-2 pointer-events-auto">
+      {/* The four menu buttons measure 565px in a row; on a 375px phone the
+          last one sat off-screen and could not be reached at all. Bound the
+          row to the viewport and let it wrap below md. Desktop keeps
+          left-4 / auto width / nowrap exactly as before. */}
+      <div className="absolute top-4 left-4 right-4 md:right-auto z-20 flex flex-wrap md:flex-nowrap gap-2 pointer-events-auto">
         <div className="relative">
            <button className="bg-white/90 backdrop-blur-md px-4 py-2 flex items-center gap-2 rounded-lg shadow-sm border border-slate-200 text-sm font-sans font-medium text-slate-700 hover:bg-slate-50 transition-colors" onClick={() => { setFileMenuOpen(!fileMenuOpen); setModulesMenuOpen(false); setToolsMenuOpen(false); setLayersMenuOpen(false); }}>
               <Folder size={16}/> File
@@ -313,7 +338,10 @@ export default function App() {
 
       <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleOpenScene} />
 
-      <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-4 pointer-events-none max-h-[calc(100vh-2rem)] pr-1">
+      {/* Below md this sits along the bottom rather than the top-right corner,
+          clear of the collapsed Environment sheet beneath it and of the
+          walkability panel above, so the three never stack on one another. */}
+      <div className="absolute top-auto bottom-20 left-3 right-3 items-stretch md:top-4 md:bottom-auto md:left-auto md:right-4 md:items-end z-10 flex flex-col gap-4 pointer-events-none max-h-[calc(100vh-2rem)] md:pr-1">
          {(() => {
             const openTabs = [];
             if (isSettingsOpen) openTabs.push({ id: 'settings', label: 'Settings', icon: <Settings size={14} className="text-blue-500" /> });
@@ -334,7 +362,11 @@ export default function App() {
 
             return (
               <div className="pointer-events-auto bg-white/95 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col shrink-0" 
-                   style={{ direction: 'rtl', overflow: 'hidden', minWidth: '320px', maxWidth: '800px', maxHeight: '90vh', ...getPanelSize('unified_panel'), resize: isRightPanelMinimized ? 'none' : 'both', minHeight: isRightPanelMinimized ? 'auto' : '300px', height: isRightPanelMinimized ? 'auto' : (getPanelSize('unified_panel').height || undefined) }} 
+                   style={isNarrow
+                     ? { direction: 'rtl', overflow: 'hidden', width: '100%', minWidth: 0, maxWidth: '100%',
+                         maxHeight: '38vh', resize: 'none',
+                         minHeight: 'auto', height: 'auto' }
+                     : { direction: 'rtl', overflow: 'hidden', minWidth: '320px', maxWidth: '800px', maxHeight: '90vh', ...getPanelSize('unified_panel'), resize: isRightPanelMinimized ? 'none' : 'both', minHeight: isRightPanelMinimized ? 'auto' : '300px', height: isRightPanelMinimized ? 'auto' : (getPanelSize('unified_panel').height || undefined) }}
                    onMouseUp={(e) => savePanelSize(e, 'unified_panel')}>
                 <div style={{ direction: 'ltr', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                   
@@ -610,15 +642,18 @@ export default function App() {
       </div>
 
       {activeTool === 'walkability' && !isWalkabilityMinimized && (
-         <div className="absolute top-20 left-6 z-10 pointer-events-none w-72">
-            <div className="pointer-events-auto flex flex-col shrink-0" style={{ maxHeight: 'calc(100vh - 12rem)' }}>
+         <div className="absolute top-40 left-3 right-3 w-auto md:top-20 md:left-6 md:right-auto md:w-72 z-10 pointer-events-none">
+            <div className="pointer-events-auto flex flex-col shrink-0 overflow-y-auto custom-scrollbar max-h-[28vh] md:max-h-[calc(100vh-12rem)] md:overflow-visible">
                 <WalkabilityInfrastructurePanel />
             </div>
          </div>
       )}
 
-      <div className="absolute bottom-6 left-6 z-10 pointer-events-auto w-72">
-         <div className="bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col overflow-hidden">
+      {/* Below md this becomes a full-width sheet along the bottom edge rather
+          than a 288px card floating over the model, and its body scrolls
+          inside a capped height so an open panel can never swallow the view. */}
+      <div className="absolute bottom-3 left-3 right-3 w-auto md:bottom-6 md:left-6 md:right-auto md:w-72 z-10 pointer-events-auto">
+         <div className="bg-white/90 backdrop-blur-md border border-slate-200 rounded-lg shadow-lg flex flex-col overflow-hidden max-h-[45vh] md:max-h-none">
             <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                <div className="flex items-center gap-2 font-medium text-slate-700 text-xs">
                   <Sun size={14} className="text-amber-500" /> Environment Conditions
@@ -626,7 +661,7 @@ export default function App() {
                <button className="w-5 h-5 flex items-center justify-center hover:bg-slate-200 rounded text-slate-400 font-bold bg-transparent border-0 cursor-pointer text-[10px]" onClick={() => setEnvMinimized(!isEnvMinimized)}>{isEnvMinimized ? '▼' : '▬'}</button>
             </div>
             {!isEnvMinimized && (
-                <div className="p-4 flex flex-col gap-6">
+                <div className="p-4 flex flex-col gap-6 overflow-y-auto custom-scrollbar md:overflow-visible">
                <div className="flex flex-col gap-3">
                   <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
                      <span>Date (Month/Day)</span>

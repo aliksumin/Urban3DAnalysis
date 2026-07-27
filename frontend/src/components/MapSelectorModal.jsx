@@ -100,8 +100,12 @@ export default function MapSelectorModal({ isOpen, onClose, onRegionSelect }) {
         } catch (err) { }
     };
 
+    // Mobile note: every responsive tweak in this file is a small base value
+    // plus an `md:` override carrying the original one, so anything 768px and
+    // wider renders exactly as it did before. p-10 alone left a 375px phone
+    // only 295px of modal to work with.
     return (
-        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-slate-200/50 backdrop-blur-md p-10">
+        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-slate-200/50 backdrop-blur-md p-3 md:p-10">
             <Panel className="w-full max-w-[1200px] h-full max-h-[800px] shadow-2xl relative">
 
                 <PanelHeader
@@ -119,20 +123,26 @@ export default function MapSelectorModal({ isOpen, onClose, onRegionSelect }) {
 
                     <ResizableFrame boxW={boxW} boxH={boxH} setBoxW={setBoxW} setBoxH={setBoxH} />
 
-                    <div className="absolute top-5 left-5 pointer-events-none z-[1000] drop-shadow-2xl">
+                    {/* The w-64 field plus its button needed ~300px, wider than
+                        the map pane on a phone, so the search ran off the edge.
+                        Span the pane instead and let the field flex. */}
+                    <div className="absolute top-3 left-3 right-3 md:top-5 md:left-5 md:right-auto pointer-events-none z-[1000] drop-shadow-2xl">
                         <form onSubmit={handleSearch} className="flex gap-2 pointer-events-auto bg-white/90 backdrop-blur-md border border-slate-200 p-2 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
-                            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none text-slate-800 px-3 py-1.5 text-xs w-64 focus:outline-none placeholder-slate-400 font-mono" placeholder="Query region array..." />
+                            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent border-none text-slate-800 px-3 py-1.5 text-xs w-full min-w-0 md:w-64 focus:outline-none placeholder-slate-400 font-mono" placeholder="Query region array..." />
                             <Button variant="secondary" size="icon" type="submit" className="rounded-xl"><Search size={14} /></Button>
                         </form>
                     </div>
                 </div>
 
-                <div className="px-6 py-5 border-t border-slate-200/80 bg-slate-50/50 flex justify-between items-center">
-                    <div className="w-64">
+                {/* Side by side, the w-64 switch and the button needed ~406px
+                    against the 293px a phone leaves, which cut "Extract Core
+                    Geometry" off at the edge. Stack them below md. */}
+                <div className="px-4 py-4 md:px-6 md:py-5 border-t border-slate-200/80 bg-slate-50/50 flex flex-col gap-3 items-stretch md:flex-row md:justify-between md:items-center">
+                    <div className="w-full md:w-64">
                         <Switch checked={reliefEnabled} onChange={setReliefEnabled} label="3D Topography Rendering" />
                     </div>
 
-                    <Button onClick={() => { onRegionSelect(bounds, reliefEnabled); onClose(); }}>
+                    <Button className="w-full md:w-auto" onClick={() => { onRegionSelect(bounds, reliefEnabled); onClose(); }}>
                         Extract Core Geometry
                     </Button>
                 </div>
